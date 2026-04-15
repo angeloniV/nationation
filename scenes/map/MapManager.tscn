@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3 uid="uid://map_manager"]
+
+[ext_resource type="Script" path="res://scripts/map/MapManager.cs" id="1"]
+
+[node name="MapManager" type="Node3D"]
+script = ExtResource("1")
+MapWidth = 60
+MapHeight = 40
+Seed = 42
