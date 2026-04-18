@@ -106,8 +106,16 @@ namespace Natiolation.UI
 
         public override void _Ready()
         {
-            // Ocupa todo el viewport del CanvasLayer padre
+            // ── Anclaje al viewport completo ─────────────────────────────
+            // Mismo fix que NationpediaPanel: CanvasLayer no propaga rect como Container.
             SetAnchorsPreset(LayoutPreset.FullRect);
+            OffsetLeft = 0f; OffsetTop = 0f; OffsetRight = 0f; OffsetBottom = 0f;
+            Size = GetViewport().GetVisibleRect().Size;
+            GetViewport().SizeChanged += () =>
+            {
+                Size = GetViewport().GetVisibleRect().Size;
+            };
+
             MouseFilter = MouseFilterEnum.Stop;
             Visible = false;
             BuildPanel();

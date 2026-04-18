@@ -100,6 +100,12 @@ namespace Natiolation.UI
 
 		public override void _Ready()
 		{
+			// Paneles flotantes PRIMERO: UIOverlay._EnterTree ya corrió antes que este _Ready,
+			// así los campos están poblados cuando los lambdas de los botones se crean en BuildUI().
+			var overlay  = GetNode<UIOverlayLayer>("/root/Main/UIOverlay");
+			_nationpedia = overlay.Nationpedia;
+			_techTree    = overlay.TechTree;
+
 			_unitManager = GetNode<UnitManager>("/root/Main/UnitManager");
 			_cityManager = GetNode<CityManager>("/root/Main/CityManager");
 			_map         = GetNode<MapManager> ("/root/Main/MapManager");
@@ -107,13 +113,6 @@ namespace Natiolation.UI
 			BuildUI();
 			BuildToast();
 			WireSignals();
-
-			// Los paneles flotantes viven en UIOverlay (CanvasLayer layer=15),
-			// hijo directo de Main — así permanecen fijos al viewport independientemente
-			// de la cámara y de este CanvasLayer.
-			var overlay  = GetNode<UIOverlayLayer>("/root/Main/UIOverlay");
-			_nationpedia = overlay.Nationpedia;
-			_techTree    = overlay.TechTree;
 		}
 
 		public override void _UnhandledInput(InputEvent @event)

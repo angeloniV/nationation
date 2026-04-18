@@ -51,8 +51,17 @@ namespace Natiolation.UI
 
         public override void _Ready()
         {
-            // Ocupa todo el viewport del CanvasLayer padre
+            // ── Anclaje al viewport completo ─────────────────────────────
+            // SetAnchorsPreset(FullRect) por sí solo no garantiza Size cuando el padre
+            // es un CanvasLayer (no es un Container). Forzamos Size explícito.
             SetAnchorsPreset(LayoutPreset.FullRect);
+            OffsetLeft = 0f; OffsetTop = 0f; OffsetRight = 0f; OffsetBottom = 0f;
+            Size = GetViewport().GetVisibleRect().Size;
+            GetViewport().SizeChanged += () =>
+            {
+                Size = GetViewport().GetVisibleRect().Size;
+            };
+
             MouseFilter = MouseFilterEnum.Stop;
             Visible = false;
             BuildPanel();
@@ -122,14 +131,31 @@ namespace Natiolation.UI
             for (int i = 0; i < _categoryNames.Length; i++)
             {
                 int idx = i;
-                var btn = new Button { Text = _categoryNames[i], Flat = false };
+                var btn = new Button { Text = _categoryNames[i] };
                 btn.AddThemeFontSizeOverride("font_size", 16);
-                btn.AddThemeColorOverride("font_color",          TextDim);
-                btn.AddThemeColorOverride("font_hover_color",    TextMain);
-                btn.AddThemeColorOverride("font_pressed_color",  Gold);
-                btn.AddThemeColorOverride("font_focus_color",    Gold);
-                btn.CustomMinimumSize = new Vector2(0, 40);
+                btn.AddThemeColorOverride("font_color",         TextDim);
+                btn.AddThemeColorOverride("font_hover_color",   TextMain);
+                btn.AddThemeColorOverride("font_pressed_color", Gold);
+                btn.AddThemeColorOverride("font_focus_color",   Gold);
+                btn.CustomMinimumSize = new Vector2(0, 42);
+                btn.Alignment = HorizontalAlignment.Left;
+
+                // StyleBox explícito — sin esto el botón puede no renderizarse
+                // ni responder visualmente en ausencia de un Theme global
+                var sbNorm = new StyleBoxFlat { BgColor = new Color(0.08f, 0.11f, 0.17f) };
+                sbNorm.ContentMarginLeft = 12f;
+                var sbHov  = new StyleBoxFlat { BgColor = new Color(0.14f, 0.18f, 0.26f) };
+                sbHov.ContentMarginLeft  = 12f;
+                var sbPres = new StyleBoxFlat { BgColor = new Color(0.06f, 0.16f, 0.28f) };
+                sbPres.ContentMarginLeft = 12f;
+                btn.AddThemeStyleboxOverride("normal",  sbNorm);
+                btn.AddThemeStyleboxOverride("hover",   sbHov);
+                btn.AddThemeStyleboxOverride("pressed", sbPres);
+                btn.AddThemeStyleboxOverride("focus",   sbNorm);
+
+                // Conexión programática de la señal Pressed → ShowCategory
                 btn.Pressed += () => ShowCategory(idx);
+
                 _sideList.AddChild(btn);
                 _catButtons.Add(btn);
             }
