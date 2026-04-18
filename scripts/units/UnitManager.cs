@@ -27,20 +27,37 @@ namespace Natiolation.Units
         [Signal] public delegate void CitySelectedEventHandler(int q, int r);
         [Signal] public delegate void CityDeselectedEventHandler();
 
+        // ── C# Events para Army (evitan acoplamiento fuerte con la UI) ──────
+        public event System.Action<Army>? ArmySelectedEvent;
+        public event System.Action?       ArmyDeselectedEvent;
+
         private MapManager  _map         = null!;
         private MapOverlay  _overlay     = null!;
         private MapCamera   _camera      = null!;
         private CityManager _cityManager = null!;
 
-        private readonly List<Unit>                 _units   = new();
-        private readonly Dictionary<HexCoord, Unit> _byHex   = new();
+        private readonly List<Unit>                 _units      = new();
+        private readonly Dictionary<HexCoord, Unit> _byHex      = new();
+
+        // ── Ejércitos ────────────────────────────────────────────────────────
+        private readonly List<Army>                  _armies     = new();
+        private readonly Dictionary<HexCoord, Army>  _armiesByHex = new();
 
         /// <summary>Acceso de solo lectura a todas las unidades (usado por el minimapa).</summary>
-        public System.Collections.Generic.IReadOnlyList<Unit> AllUnits => _units;
+        public System.Collections.Generic.IReadOnlyList<Unit>  AllUnits  => _units;
+        public System.Collections.Generic.IReadOnlyList<Army>  AllArmies => _armies;
 
         private Unit?             _selected;
+        private Army?             _selectedArmy;
         private HexCoord?         _hovered;
         private HashSet<HexCoord> _reachable = new();
+
+        // ── Estado de fusión / despliegue (Fase 4) ───────────────────────────
+        private ConfirmationDialog _mergeDialog     = null!;
+        private Unit?  _pendingMergeA    = null;   // primera unidad a fusionar
+        private Unit?  _pendingMergeB    = null;   // segunda unidad a fusionar (null = join to army)
+        private Army?  _pendingJoinArmy  = null;   // ejército al que se une _pendingMergeA
+        private Unit?  _pendingDeployUnit = null;  // unidad seleccionada para desplegarse del ejército
 
         // ================================================================
 
@@ -53,6 +70,22 @@ namespace Natiolation.Units
 
             _cityManager.UnitProductionComplete += OnUnitProductionComplete;
             GameManager.Instance.WarDeclared    += OnWarDeclared;
+
+            // ── ConfirmationDialog para fusionar unidades ─────────────────
+            var cl = new CanvasLayer { Layer = 25 };
+            AddChild(cl);
+            _mergeDialog = new ConfirmationDialog
+            {
+                Title           = "Fusionar en Ejército",
+                DialogText      = "¿Deseas fusionar estas unidades en un Ejército?",
+                OkButtonText    = "Fusionar",
+                CancelButtonText= "Cancelar",
+                InitialPosition = Window.WindowInitialPosition.CenterMainWindowScreen,
+            };
+            cl.AddChild(_mergeDialog);
+            _mergeDialog.Confirmed += OnMergeConfirmed;
+            _mergeDialog.Canceled  += OnMergeCanceled;
+
             SpawnStartingUnits();
         }
 
@@ -174,7 +207,22 @@ namespace Natiolation.Units
             var hex = _hovered;
             if (hex == null) return;
 
-            // 1. Click en unidad propia
+            // 1a. Click en ejército propio
+            if (_armiesByHex.TryGetValue(hex, out var clickedArmy) && clickedArmy.CivIndex == 0)
+            {
+                if (clickedArmy == _selectedArmy)
+                {
+                    DeselectArmy();
+                }
+                else
+                {
+                    Deselect();
+                    SelectArmy(clickedArmy);
+                }
+                return;
+            }
+
+            // 1b. Click en unidad propia
             if (_byHex.TryGetValue(hex, out var clicked) && clicked.CivIndex == 0)
             {
                 if (clicked == _selected)
@@ -183,13 +231,22 @@ namespace Natiolation.Units
                     var cityHere = _cityManager.GetCityAt(hex.Q, hex.R);
                     if (cityHere != null && cityHere.CivIndex == 0)
                     {
-                        Deselect();   // emite CityDeselected + UnitDeselected
+                        Deselect();
                         EmitSignal(SignalName.CitySelected, hex.Q, hex.R);
                     }
                     else
                     {
                         Deselect();
                     }
+                }
+                else if (_selected != null
+                         && _selected.CivIndex == 0
+                         && HexDist(_selected.Q, _selected.R, clicked.Q, clicked.R) == 1
+                         && IsMilitary(_selected.UnitType)
+                         && IsMilitary(clicked.UnitType))
+                {
+                    // Unidad seleccionada + click en unidad aliada adyacente → fusionar
+                    ShowMergeDialog(_selected, clicked);
                 }
                 else
                 {
@@ -199,14 +256,56 @@ namespace Natiolation.Units
                 return;
             }
 
-            // 2. Mover o atacar con unidad seleccionada
+            // 2a. Mover o atacar con ejército seleccionado
+            if (_selectedArmy != null && _reachable.Contains(hex))
+            {
+                // Unidad enemiga → atacar con ejército
+                if (_byHex.TryGetValue(hex, out var enemyUnit) && enemyUnit.CivIndex != _selectedArmy.CivIndex)
+                {
+                    TryAttackArmyVsUnit(_selectedArmy, enemyUnit);
+                    return;
+                }
+                // Ejército enemigo → atacar
+                if (_armiesByHex.TryGetValue(hex, out var enemyArmy) && enemyArmy.CivIndex != _selectedArmy.CivIndex)
+                {
+                    TryAttackArmyVsArmy(_selectedArmy, enemyArmy);
+                    return;
+                }
+                // Unidad aliada → ofrecer unirse al ejército
+                if (_byHex.TryGetValue(hex, out var ally) && ally.CivIndex == _selectedArmy.CivIndex)
+                {
+                    ShowJoinArmyDialog(ally, _selectedArmy);
+                    return;
+                }
+                // Hex vacío → mover ejército
+                var armyPath = Pathfinder.FindPath(
+                    _map, _selectedArmy.Q, _selectedArmy.R,
+                    hex.Q, hex.R, _selectedArmy.RemainingMovement,
+                    GetArmyBlockedHexes(_selectedArmy));
+                if (armyPath != null) _ = IssueArmyMove(_selectedArmy, armyPath);
+                return;
+            }
+
+            // 2b. Mover o atacar con unidad seleccionada
             if (_selected != null && _reachable.Contains(hex))
             {
-                // Si el tile tiene una unidad enemiga, atacar
+                // Unidad enemiga → atacar
                 if (_byHex.TryGetValue(hex, out var occupant) && occupant.CivIndex != _selected.CivIndex)
                 {
                     if (UnitTypeData.GetStats(_selected.UnitType).CombatStrength > 0)
                         TryAttack(_selected, occupant);
+                    return;
+                }
+                // Ejército enemigo → atacar con unidad (usa champion del ejército como defensor)
+                if (_armiesByHex.TryGetValue(hex, out var defArmy) && defArmy.CivIndex != _selected.CivIndex)
+                {
+                    TryAttackUnitVsArmy(_selected, defArmy);
+                    return;
+                }
+                // Ejército aliado → ofrecer unirse
+                if (_armiesByHex.TryGetValue(hex, out var allyArmy) && allyArmy.CivIndex == _selected.CivIndex)
+                {
+                    ShowJoinArmyDialog(_selected, allyArmy);
                     return;
                 }
 
@@ -225,19 +324,42 @@ namespace Natiolation.Units
             if (city != null && city.CivIndex == 0)
             {
                 if (_selected != null) Deselect();
+                if (_selectedArmy != null) DeselectArmy();
                 EmitSignal(SignalName.CitySelected, hex.Q, hex.R);
                 return;
             }
 
             // 4. Click en vacío — deseleccionar todo
             Deselect();
+            DeselectArmy();
         }
 
         private void HandleRightClick()
         {
             var hex = _hovered;
 
-            // Con unidad seleccionada y un hex válido → fijar destino (waypoint)
+            // Ejército seleccionado + unidad de despliegue pendiente + hex adyacente vacío → desplegar
+            if (_selectedArmy != null && _pendingDeployUnit != null && hex != null)
+            {
+                if (IsAdjacent(_selectedArmy.Q, _selectedArmy.R, hex.Q, hex.R))
+                {
+                    var t = _map.GetTileType(hex.Q, hex.R);
+                    if (t != null && Pathfinder.IsPassable(t.Value)
+                                  && !_byHex.ContainsKey(hex)
+                                  && !_armiesByHex.ContainsKey(hex))
+                    {
+                        DeployUnitFromArmy(_selectedArmy, _pendingDeployUnit, hex.Q, hex.R);
+                        _pendingDeployUnit = null;
+                        return;
+                    }
+                }
+                // Click fuera del rango → cancelar despliegue
+                _pendingDeployUnit = null;
+                EmitSignal(SignalName.CombatEvent, "✗  Despliegue cancelado");
+                return;
+            }
+
+            // Unidad seleccionada + hex válido → fijar destino (waypoint)
             if (_selected != null && hex != null)
             {
                 var t = _map.GetTileType(hex.Q, hex.R);
@@ -245,7 +367,6 @@ namespace Natiolation.Units
                     && !(hex.Q == _selected.Q && hex.R == _selected.R))
                 {
                     _selected.SetWaypoint(hex.Q, hex.R);
-                    // Mostrar el camino previsto al destino
                     var previewPath = Pathfinder.FindPath(
                         _map, _selected.Q, _selected.R,
                         hex.Q, hex.R, float.MaxValue);
@@ -256,8 +377,9 @@ namespace Natiolation.Units
                 }
             }
 
-            // Sin unidad seleccionada → deseleccionar
+            // Sin selección → deseleccionar todo
             Deselect();
+            DeselectArmy();
         }
 
         private void SelectUnit(Unit unit)
@@ -363,9 +485,12 @@ namespace Natiolation.Units
 
         public void EndTurn()
         {
-            // ── 1. Verificar unidades sin órdenes ─────────────────────────
+            // ── 1. Verificar unidades sin órdenes (incluyendo ejércitos) ──
             var pending = _units
                 .Where(u => u.CivIndex == 0 && !u.IsReadyForTurn)
+                .ToList();
+            var pendingArmies = _armies
+                .Where(a => a.CivIndex == 0 && !a.IsReadyForTurn)
                 .ToList();
             if (pending.Count > 0)
             {
@@ -400,8 +525,11 @@ namespace Natiolation.Units
             }
 
             Deselect();
+            DeselectArmy();
             foreach (var unit in _units)
                 unit.ResetMovement();
+            foreach (var army in _armies)
+                army.ResetMovement();
 
             // ── Mover unidades del jugador con waypoint ───────────────────
             ProcessWaypointMovements();
@@ -880,35 +1008,54 @@ namespace Natiolation.Units
             if (!gm.IsAtWar(attacker.CivIndex, defender.CivIndex))
                 gm.DeclareWar(attacker.CivIndex, defender.CivIndex);
 
-            // Calcular fuerzas
+            // ── Calcular fuerzas ─────────────────────────────────────────
             float terrainMult = GetTerrainDefenseMultiplier(defender.Q, defender.R);
-            if (defender.IsFortified)                                        terrainMult *= 1.5f;
-            if (_cityManager.GetCityAt(defender.Q, defender.R) != null)     terrainMult *= 2.0f;
+            if (defender.IsFortified)                                    terrainMult *= 1.5f;
+            if (_cityManager.GetCityAt(defender.Q, defender.R) != null) terrainMult *= 2.0f;
 
-            float atkPow  = aStats.CombatStrength + (attacker.IsVeteran ? 2 : 0);
+            float atkPow  = Mathf.Max(1f, aStats.CombatStrength + (attacker.IsVeteran ? 2 : 0));
             float defPow  = Mathf.Max(1f, dStats.CombatStrength * terrainMult);
 
-            float atkRoll = (float)GD.RandRange(0.0, atkPow);
-            float defRoll = (float)GD.RandRange(0.0, defPow);
+            float atkRoll = (float)GD.RandRange(0.8, 1.2) * atkPow;
+            float defRoll = (float)GD.RandRange(0.8, 1.2) * defPow;
 
-            bool attackerWins = atkRoll >= defRoll;
-            int  defQ = defender.Q, defR = defender.R;
+            // ── Calcular daño proporcional (basado en Civ 5) ────────────
+            // Daño al defensor: mayor si atacante es más fuerte
+            int defDamage = Mathf.Clamp((int)(30f * atkRoll / defRoll), 5, 90);
+            // Contra-daño al atacante: menor que el daño principal
+            int atkDamage = Mathf.Clamp((int)(18f * defRoll / atkRoll), 2, 60);
 
-            // Notificación al jugador
+            int defQ = defender.Q, defR = defender.R;
+
+            // ── Aplicar daño ─────────────────────────────────────────────
+            defender.TakeDamage(defDamage);
+            if (IsInstanceValid(attacker)) attacker.TakeDamage(atkDamage);
+
+            bool defenderDied = defender.CurrentHP <= 0;
+            bool attackerDied = IsInstanceValid(attacker) && attacker.CurrentHP <= 0;
+
+            // ── Mensaje de combate ───────────────────────────────────────
             string atkName = aStats.DisplayName;
             string defName = dStats.DisplayName;
-            string msg = attackerWins
-                ? $"⚔  {atkName} derrotó a {defName}"
-                : $"☠  {atkName} fue derrotado por {defName}";
+            string msg;
+            if (defenderDied && attackerDied)
+                msg = $"⚔  {atkName} y {defName} se destruyen mutuamente";
+            else if (defenderDied)
+                msg = $"⚔  {atkName} venció a {defName} ({defDamage} daño)";
+            else if (attackerDied)
+                msg = $"☠  {atkName} fue derrotado por {defName}";
+            else
+                msg = $"⚔  {atkName}→{defDamage}dmg | {defName}→{atkDamage}dmg";
+
             if (attacker.CivIndex == 0 || defender.CivIndex == 0)
                 EmitSignal(SignalName.CombatEvent, msg);
 
-            // Destruir perdedor
-            Unit loser = attackerWins ? defender : attacker;
-            DestroyUnit(loser);
+            // ── Destruir unidades muertas ────────────────────────────────
+            if (defenderDied) DestroyUnit(defender);
+            if (attackerDied && IsInstanceValid(attacker)) DestroyUnit(attacker);
 
-            // Si el atacante ganó, avanza al tile del defensor
-            if (attackerWins && IsInstanceValid(attacker))
+            // ── Atacante avanza si ganó sin morir ────────────────────────
+            if (!attackerDied && defenderDied && IsInstanceValid(attacker))
             {
                 var movePath = new List<HexCoord>
                 {
@@ -918,7 +1065,8 @@ namespace Natiolation.Units
                 _ = IssueMove(attacker, movePath);
             }
 
-            if (IsInstanceValid(attacker)) attacker.ConsumeAllMovement();
+            if (!attackerDied && IsInstanceValid(attacker))
+                attacker.ConsumeAllMovement();
         }
 
         private void DestroyUnit(Unit unit)
@@ -1051,6 +1199,340 @@ namespace Natiolation.Units
                 t.Value.TileName(), t.Value.FoodYield(),
                 t.Value.ProductionYield(), t.Value.MovementCost());
         }
+
+        // ================================================================
+        //  EJÉRCITOS — SELECCIÓN Y MOVIMIENTO
+        // ================================================================
+
+        private void SelectArmy(Army army)
+        {
+            if (_selectedArmy != null) _selectedArmy.Select(false);
+            _selectedArmy = army;
+            army.Select(true);
+            _reachable = Pathfinder.GetReachable(
+                _map, army.Q, army.R, army.RemainingMovement,
+                GetArmyBlockedHexes(army));
+            _overlay.SetReachable(_reachable);
+            _overlay.SetSelectedUnit(new HexCoord(army.Q, army.R));
+            _overlay.SetHovered(_hovered);
+            ArmySelectedEvent?.Invoke(army);
+        }
+
+        private void DeselectArmy()
+        {
+            if (_selectedArmy == null) return;
+            _selectedArmy.Select(false);
+            _selectedArmy = null;
+            _pendingDeployUnit = null;
+            _reachable.Clear();
+            _overlay.SetReachable(_reachable);
+            _overlay.SetPath(new List<HexCoord>());
+            _overlay.SetSelectedUnit(null);
+            ArmyDeselectedEvent?.Invoke();
+        }
+
+        private async Task IssueArmyMove(Army army, List<HexCoord> path)
+        {
+            _armiesByHex.Remove(new HexCoord(army.Q, army.R));
+            _overlay.ClearAll();
+            _overlay.SetHovered(_hovered);
+
+            await army.MoveTo(path, _map);
+
+            _armiesByHex[new HexCoord(army.Q, army.R)] = army;
+
+            if (army.CivIndex == 0) RefreshFog();
+
+            if (_selectedArmy == army)
+            {
+                _reachable = Pathfinder.GetReachable(
+                    _map, army.Q, army.R, army.RemainingMovement,
+                    GetArmyBlockedHexes(army));
+                _overlay.SetReachable(_reachable);
+                _overlay.SetHovered(_hovered);
+                _overlay.MoveSelectedUnit(new HexCoord(army.Q, army.R));
+            }
+        }
+
+        /// <summary>Hexes bloqueados para que un ejército no se superponga a otro ejército o unidad aliada.</summary>
+        private HashSet<HexCoord> GetArmyBlockedHexes(Army army)
+        {
+            var blocked = new HashSet<HexCoord>();
+            foreach (var kv in _byHex)
+            {
+                if (kv.Value.CivIndex != army.CivIndex) continue;
+                blocked.Add(kv.Key);
+            }
+            foreach (var kv in _armiesByHex)
+            {
+                if (kv.Value == army) continue;
+                if (kv.Value.CivIndex != army.CivIndex) continue;
+                blocked.Add(kv.Key);
+            }
+            return blocked;
+        }
+
+        // ================================================================
+        //  EJÉRCITOS — FUSIÓN Y DESPLIEGUE
+        // ================================================================
+
+        private void ShowMergeDialog(Unit a, Unit b)
+        {
+            _pendingMergeA   = a;
+            _pendingMergeB   = b;
+            _pendingJoinArmy = null;
+            var nameA = UnitTypeData.GetStats(a.UnitType).DisplayName;
+            var nameB = UnitTypeData.GetStats(b.UnitType).DisplayName;
+            _mergeDialog.DialogText = $"¿Deseas fusionar {nameA} y {nameB} en un Ejército?";
+            _mergeDialog.PopupCentered();
+        }
+
+        private void ShowJoinArmyDialog(Unit unit, Army army)
+        {
+            _pendingMergeA   = unit;
+            _pendingMergeB   = null;
+            _pendingJoinArmy = army;
+            var name = UnitTypeData.GetStats(unit.UnitType).DisplayName;
+            _mergeDialog.DialogText = $"¿Deseas que {name} se una al Ejército ({army.Count} unidades)?";
+            _mergeDialog.PopupCentered();
+        }
+
+        private void OnMergeConfirmed()
+        {
+            if (_pendingMergeA == null) return;
+
+            if (_pendingJoinArmy != null)
+            {
+                // Unidad uniéndose a ejército existente
+                JoinUnitIntoArmy(_pendingMergeA, _pendingJoinArmy);
+            }
+            else if (_pendingMergeB != null)
+            {
+                // Dos unidades → nuevo ejército en la posición de la unidad A
+                MergeUnitsIntoArmy(_pendingMergeA, _pendingMergeB);
+            }
+
+            _pendingMergeA   = null;
+            _pendingMergeB   = null;
+            _pendingJoinArmy = null;
+        }
+
+        private void OnMergeCanceled()
+        {
+            _pendingMergeA   = null;
+            _pendingMergeB   = null;
+            _pendingJoinArmy = null;
+        }
+
+        private void MergeUnitsIntoArmy(Unit a, Unit b)
+        {
+            if (!IsInstanceValid(a) || !IsInstanceValid(b)) return;
+
+            // El ejército se crea en el hex de la unidad A (la que inició la fusión)
+            var army = new Army
+            {
+                CivColor = a.CivColor,
+                CivIndex = a.CivIndex,
+            };
+            AddChild(army);
+            army.PlaceAt(a.Q, a.R, _map.GetTileHeight(a.Q, a.R));
+
+            // Quitar ambas unidades del mapa individual
+            Deselect();
+            _byHex.Remove(new HexCoord(a.Q, a.R));
+            _byHex.Remove(new HexCoord(b.Q, b.R));
+
+            army.AddUnit(a);
+            army.AddUnit(b);
+
+            _armies.Add(army);
+            _armiesByHex[new HexCoord(army.Q, army.R)] = army;
+
+            if (a.CivIndex == 0) RefreshFog();
+            SelectArmy(army);
+            EmitSignal(SignalName.CombatEvent,
+                $"⚔  Ejército formado ({army.Count} unidades)");
+        }
+
+        private void JoinUnitIntoArmy(Unit unit, Army army)
+        {
+            if (!IsInstanceValid(unit) || !IsInstanceValid(army)) return;
+
+            Deselect();
+            _byHex.Remove(new HexCoord(unit.Q, unit.R));
+
+            army.AddUnit(unit);
+
+            if (unit.CivIndex == 0) RefreshFog();
+            SelectArmy(army);
+            EmitSignal(SignalName.CombatEvent,
+                $"⚔  Ejército reforzado ({army.Count} unidades)");
+        }
+
+        /// <summary>
+        /// Despliega una unidad del ejército hacia un hex adyacente vacío.
+        /// Llamado por el HUD (botón "Desplegar") y confirmado con right-click.
+        /// </summary>
+        public void DeployUnitFromArmy(Army army, Unit unit, int q, int r)
+        {
+            if (!IsInstanceValid(army) || !IsInstanceValid(unit)) return;
+            if (!army.Units.Contains(unit)) return;
+
+            army.RemoveUnit(unit);   // restaura unit.Visible = true
+            unit.PlaceAt(q, r, _map.GetTileHeight(q, r));
+            unit.ConsumeAllMovement();
+
+            _byHex[new HexCoord(q, r)] = unit;
+            _units.Remove(unit);     // quitar y re-añadir para asegurar consistencia
+            _units.Add(unit);
+
+            // Si el ejército quedó con una sola unidad, disolver
+            if (army.Count <= 1)
+            {
+                DisbandArmy(army, reassignToMap: true);
+            }
+            else
+            {
+                SelectArmy(army);   // re-seleccionar para refrescar el panel HUD
+            }
+
+            if (unit.CivIndex == 0) RefreshFog();
+            EmitSignal(SignalName.CombatEvent, $"→  Unidad desplegada en ({q},{r})");
+        }
+
+        /// <summary>
+        /// Disuelve el ejército. Si <c>reassignToMap</c>, las unidades restantes
+        /// se devuelven al mapa en la posición del ejército.
+        /// </summary>
+        private void DisbandArmy(Army army, bool reassignToMap = false)
+        {
+            DeselectArmy();
+            _armiesByHex.Remove(new HexCoord(army.Q, army.R));
+            _armies.Remove(army);
+
+            if (reassignToMap)
+            {
+                foreach (var u in army.Units.ToList())
+                {
+                    army.RemoveUnit(u);
+                    u.PlaceAt(army.Q, army.R, _map.GetTileHeight(army.Q, army.R));
+                    _byHex[new HexCoord(u.Q, u.R)] = u;
+                }
+            }
+
+            army.QueueFree();
+        }
+
+        /// <summary>
+        /// Llamado desde el HUD cuando el jugador hace clic en "Desplegar" junto a una unidad.
+        /// La siguiente vez que el jugador haga right-click en un hex adyacente válido,
+        /// la unidad será desplegada.
+        /// </summary>
+        public void PrepareDeployUnit(Unit unit)
+        {
+            if (_selectedArmy == null) return;
+            if (!_selectedArmy.Units.Contains(unit)) return;
+            _pendingDeployUnit = unit;
+            var name = UnitTypeData.GetStats(unit.UnitType).DisplayName;
+            EmitSignal(SignalName.CombatEvent,
+                $"→  {name} lista para desplegar — click derecho en hex adyacente");
+        }
+
+        // ================================================================
+        //  EJÉRCITOS — COMBATE
+        // ================================================================
+
+        private void TryAttackArmyVsUnit(Army army, Unit defender)
+        {
+            var dStats    = UnitTypeData.GetStats(defender.UnitType);
+            float atkPow  = Mathf.Max(1f, army.CombatStrength);
+            float defPow  = Mathf.Max(1f, dStats.CombatStrength
+                                         * GetTerrainDefenseMultiplier(defender.Q, defender.R));
+            float atkRoll = (float)GD.RandRange(0.8, 1.2) * atkPow;
+            float defRoll = (float)GD.RandRange(0.8, 1.2) * defPow;
+
+            int defDamage = Mathf.Clamp((int)(30f * atkRoll / defRoll), 5, 90);
+            int atkDamage = Mathf.Clamp((int)(18f * defRoll / atkRoll), 2, 60);
+
+            defender.TakeDamage(defDamage);
+            bool armyAlive = army.TakeDamage(atkDamage);
+
+            string msg = defender.CurrentHP <= 0
+                ? $"⚔  Ejército derrotó a {dStats.DisplayName} ({defDamage} daño)"
+                : $"⚔  Ejército→{defDamage}dmg | {dStats.DisplayName}→{atkDamage}dmg";
+            EmitSignal(SignalName.CombatEvent, msg);
+
+            int defQ = defender.Q, defR = defender.R;
+            if (defender.CurrentHP <= 0) DestroyUnit(defender);
+            if (!armyAlive) DestroyArmy(army); else army.ConsumeAllMovement();
+
+            if (armyAlive && IsInstanceValid(army) && defender.CurrentHP <= 0)
+            {
+                var movePath = new List<HexCoord> { new(army.Q, army.R), new(defQ, defR) };
+                _ = IssueArmyMove(army, movePath);
+            }
+        }
+
+        private void TryAttackUnitVsArmy(Unit attacker, Army army)
+        {
+            var aStats    = UnitTypeData.GetStats(attacker.UnitType);
+            if (aStats.CombatStrength == 0) return;
+
+            float atkPow  = Mathf.Max(1f, aStats.CombatStrength + (attacker.IsVeteran ? 2 : 0));
+            float defPow  = Mathf.Max(1f, army.CombatStrength);
+            float atkRoll = (float)GD.RandRange(0.8, 1.2) * atkPow;
+            float defRoll = (float)GD.RandRange(0.8, 1.2) * defPow;
+
+            int defDamage = Mathf.Clamp((int)(30f * atkRoll / defRoll), 5, 90);
+            int atkDamage = Mathf.Clamp((int)(18f * defRoll / atkRoll), 2, 60);
+
+            bool armyAlive = army.TakeDamage(defDamage);
+            attacker.TakeDamage(atkDamage);
+
+            string msg = !armyAlive
+                ? $"⚔  {aStats.DisplayName} destruyó el ejército"
+                : $"⚔  {aStats.DisplayName}→{defDamage}dmg | Ejército→{atkDamage}dmg";
+            EmitSignal(SignalName.CombatEvent, msg);
+
+            if (!armyAlive) DestroyArmy(army);
+            if (attacker.CurrentHP <= 0 && IsInstanceValid(attacker)) DestroyUnit(attacker);
+            else if (IsInstanceValid(attacker)) attacker.ConsumeAllMovement();
+        }
+
+        private void TryAttackArmyVsArmy(Army attacker, Army defender)
+        {
+            float atkRoll = (float)GD.RandRange(0.8, 1.2) * Mathf.Max(1f, attacker.CombatStrength);
+            float defRoll = (float)GD.RandRange(0.8, 1.2) * Mathf.Max(1f, defender.CombatStrength);
+
+            int defDamage = Mathf.Clamp((int)(30f * atkRoll / defRoll), 5, 90);
+            int atkDamage = Mathf.Clamp((int)(18f * defRoll / atkRoll), 2, 60);
+
+            bool atkAlive = !attacker.TakeDamage(atkDamage) == false;  // true si sigue vivo
+            bool defAlive = defender.TakeDamage(defDamage);
+
+            atkAlive = attacker.Count > 0;  // re-evaluar tras el daño
+            defAlive = defender.Count > 0;
+
+            EmitSignal(SignalName.CombatEvent,
+                $"⚔  Ejércitos se enfrentan: Atk→{defDamage}dmg | Def→{atkDamage}dmg");
+
+            if (!defAlive) DestroyArmy(defender);
+            if (!atkAlive) DestroyArmy(attacker);
+            else attacker.ConsumeAllMovement();
+        }
+
+        private void DestroyArmy(Army army)
+        {
+            bool wasSelected = _selectedArmy == army;
+            if (wasSelected) DeselectArmy();
+            _armiesByHex.Remove(new HexCoord(army.Q, army.R));
+            _armies.Remove(army);
+            army.QueueFree();
+            RefreshFog();
+        }
+
+        private static bool IsAdjacent(int q1, int r1, int q2, int r2)
+            => HexDist(q1, r1, q2, r2) == 1;
 
         // ================================================================
         //  PICKING 3D POR RAYCAST FÍSICO

@@ -26,8 +26,18 @@ namespace Natiolation.Units
         public int  Q { get; private set; }
         public int  R { get; private set; }
 
-        public int   MaxMovement       => UnitTypeData.GetStats(UnitType).MaxMovement;
-        public float RemainingMovement { get; private set; }
+        public int   MaxMovement          => UnitTypeData.GetStats(UnitType).MaxMovement;
+        public float RemainingMovement    { get; private set; }
+        public int   CurrentMovementPoints => (int)RemainingMovement;
+
+        // ── HP ──────────────────────────────────────────────────────────────
+        [Export] public int MaxHP     { get; private set; }
+        [Export] public int CurrentHP { get; private set; }
+
+        // ── C# events (UI decoupling) ────────────────────────────────────────
+        public event System.Action<int, int>? HPChanged;   // (currentHP, maxHP)
+        public event System.Action?           Died;
+
         public bool  IsMoving          { get; private set; }
         public bool  IsFortified       { get; private set; }
         public bool  IsVeteran         { get; private set; }
@@ -39,8 +49,10 @@ namespace Natiolation.Units
         private bool  _selected;
         private float _pulse;
 
-        private Label3D     _label = null!;
-        private OmniLight3D _light = null!;
+        private Label3D             _label    = null!;
+        private OmniLight3D         _light    = null!;
+        private MeshInstance3D?     _hpBarFg  = null;
+        private StandardMaterial3D? _hpBarMat = null;
 
         // Alturas del token
         private const float BASE_TOP   = 0.10f;   // Y de la superficie de la base
@@ -50,6 +62,9 @@ namespace Natiolation.Units
 
         public override void _Ready()
         {
+            var stats     = UnitTypeData.GetStats(UnitType);
+            MaxHP         = Mathf.Max(30, stats.CombatStrength * 10);
+            CurrentHP     = MaxHP;
             RemainingMovement = MaxMovement;
             BuildVisuals();
         }
@@ -72,6 +87,16 @@ namespace Natiolation.Units
             Q = q; R = r;
             Position = HexTile3D.AxialToWorld(q, r)
                      + new Vector3(0f, tileHeight + HexTile3D.TokenHover, 0f);
+        }
+
+        /// <summary>
+        /// Actualiza solo la posición lógica (Q/R) sin mover el modelo 3D.
+        /// Usado por Army para mantener sincronizadas las coordenadas de sus unidades.
+        /// </summary>
+        public void SetLogicalPosition(int q, int r)
+        {
+            Q = q;
+            R = r;
         }
 
         public void Select(bool value)
@@ -276,6 +301,66 @@ namespace Natiolation.Units
             IsMoving = false;
         }
 
+        /// <summary>
+        /// Mueve el modelo 3D suavemente a lo largo de un array de posiciones mundo.
+        /// Animación pura — no consume puntos de movimiento.
+        /// Usado por efectos externos (cutscenes, demos, etc.).
+        /// </summary>
+        public async Task MoveAlongPath(Vector3[] worldPath)
+        {
+            if (IsMoving || worldPath.Length < 2) return;
+            IsMoving = true;
+            for (int i = 1; i < worldPath.Length; i++)
+            {
+                if (!IsInstanceValid(this)) break;
+                var tween = CreateTween();
+                tween.SetEase(Tween.EaseType.InOut);
+                tween.SetTrans(Tween.TransitionType.Sine);
+                tween.TweenProperty(this, "position", worldPath[i], 0.18f);
+                await ToSignal(tween, Tween.SignalName.Finished);
+            }
+            IsMoving = false;
+        }
+
+        // ================================================================
+        //  HP — DAÑO Y CURACIÓN
+        // ================================================================
+
+        /// <summary>Aplica daño a la unidad. Dispara HPChanged y Died si HP llega a 0.</summary>
+        public void TakeDamage(int amount)
+        {
+            if (amount <= 0) return;
+            CurrentHP = Mathf.Max(0, CurrentHP - amount);
+            UpdateHPBar();
+            HPChanged?.Invoke(CurrentHP, MaxHP);
+            if (CurrentHP <= 0)
+                Died?.Invoke();
+        }
+
+        /// <summary>Cura la unidad, sin superar MaxHP.</summary>
+        public void Heal(int amount)
+        {
+            if (amount <= 0) return;
+            CurrentHP = Mathf.Min(MaxHP, CurrentHP + amount);
+            UpdateHPBar();
+            HPChanged?.Invoke(CurrentHP, MaxHP);
+        }
+
+        private void UpdateHPBar()
+        {
+            if (_hpBarFg == null || _hpBarMat == null) return;
+            float ratio = MaxHP > 0 ? (float)CurrentHP / MaxHP : 0f;
+            ratio = Mathf.Clamp(ratio, 0.001f, 1f);
+
+            // Escalar desde el centro (billboard: X visual = camera-right, no world-X)
+            _hpBarFg.Scale = new Vector3(ratio, 1f, 1f);
+
+            // Color: verde → amarillo → rojo
+            _hpBarMat.AlbedoColor = ratio > 0.5f
+                ? new Color(0.18f, 0.82f, 0.18f).Lerp(new Color(0.95f, 0.80f, 0.10f), (1f - ratio) * 2f)
+                : new Color(0.95f, 0.80f, 0.10f).Lerp(new Color(0.90f, 0.12f, 0.10f), (0.5f - ratio) * 2f);
+        }
+
         // ================================================================
         //  CONSTRUCCIÓN DE VISUALES
         // ================================================================
@@ -344,6 +429,110 @@ namespace Natiolation.Units
                 Position    = new Vector3(0f, 1.45f / UnitScale, 0f),
             };
             AddChild(_light);
+
+            // ── Estandarte + barra de HP ─────────────────────────
+            BuildBanner();
+        }
+
+        // ================================================================
+        //  ESTANDARTE Y BARRA DE HP
+        // ================================================================
+
+        /// <summary>
+        /// Construye el estandarte flotante sobre la unidad: asta + bandera civ + barra de HP.
+        /// Los elementos visuales usan BillboardMode para ser siempre visibles.
+        /// </summary>
+        private void BuildBanner()
+        {
+            // Posiciones en espacio local (escala 1.0; Unit.Scale ya es UnitScale)
+            const float poleLocalBot = 1.34f;   // local-Y donde empieza el asta
+            const float poleH        = 0.52f;   // altura local del asta
+            const float flagW        = 0.36f;   // ancho local de la bandera
+            const float flagH        = 0.22f;   // alto  local de la bandera
+            const float barW         = 0.44f;   // ancho local de la barra HP
+            const float barH         = 0.068f;  // alto  local de la barra HP
+            const float barY         = poleLocalBot + poleH + 0.048f + barH * 0.5f;
+            const float poleX        = 0.52f;   // ligeramente a la derecha del centro
+
+            // ── Asta ──────────────────────────────────────────────
+            AddChild(MI(
+                new CylinderMesh { TopRadius = 0.015f, BottomRadius = 0.015f,
+                                   Height = poleH, RadialSegments = 5 },
+                SolidMat(new Color(0.88f, 0.84f, 0.76f), roughness: 0.22f, metallic: 0.70f),
+                new Vector3(poleX, poleLocalBot + poleH * 0.5f, 0f)));
+
+            // Punta de la asta
+            AddChild(MI(
+                new CylinderMesh { TopRadius = 0f, BottomRadius = 0.022f,
+                                   Height = 0.065f, RadialSegments = 5 },
+                SolidMat(new Color(0.92f, 0.80f, 0.22f), roughness: 0.20f, metallic: 0.75f),
+                new Vector3(poleX, poleLocalBot + poleH + 0.032f, 0f)));
+
+            // ── Bandera (billboard, color civ) ────────────────────
+            var flagMat = new StandardMaterial3D
+            {
+                AlbedoColor        = CivColor,
+                Roughness          = 0.60f,
+                BillboardMode      = BaseMaterial3D.BillboardModeEnum.Enabled,
+                BillboardKeepScale = true,
+            };
+            var flagInst = new MeshInstance3D
+            {
+                Mesh             = new QuadMesh { Size = new Vector2(flagW, flagH) },
+                MaterialOverride = flagMat,
+                Position         = new Vector3(poleX + flagW * 0.5f,
+                                               poleLocalBot + poleH - flagH * 0.5f, 0f),
+            };
+            AddChild(flagInst);
+
+            // Icono blanco en la bandera
+            var iconMat = new StandardMaterial3D
+            {
+                AlbedoColor        = Colors.White.Lerp(CivColor, 0.15f),
+                Roughness          = 0.55f,
+                BillboardMode      = BaseMaterial3D.BillboardModeEnum.Enabled,
+                BillboardKeepScale = true,
+            };
+            var iconInst = new MeshInstance3D
+            {
+                Mesh             = new QuadMesh { Size = new Vector2(flagH * 0.55f, flagH * 0.55f) },
+                MaterialOverride = iconMat,
+                Position         = new Vector3(poleX + flagW * 0.5f,
+                                               poleLocalBot + poleH - flagH * 0.5f, 0.008f),
+            };
+            AddChild(iconInst);
+
+            // ── Barra HP — fondo ──────────────────────────────────
+            var bgMat = new StandardMaterial3D
+            {
+                AlbedoColor        = new Color(0.12f, 0.12f, 0.16f),
+                Roughness          = 0.90f,
+                BillboardMode      = BaseMaterial3D.BillboardModeEnum.Enabled,
+                BillboardKeepScale = true,
+            };
+            var bgInst = new MeshInstance3D
+            {
+                Mesh             = new QuadMesh { Size = new Vector2(barW, barH) },
+                MaterialOverride = bgMat,
+                Position         = new Vector3(poleX, barY, 0f),
+            };
+            AddChild(bgInst);
+
+            // ── Barra HP — frente (escala dinámica según HP) ──────
+            _hpBarMat = new StandardMaterial3D
+            {
+                AlbedoColor        = new Color(0.18f, 0.82f, 0.18f),
+                Roughness          = 0.70f,
+                BillboardMode      = BaseMaterial3D.BillboardModeEnum.Enabled,
+                BillboardKeepScale = true,
+            };
+            _hpBarFg = new MeshInstance3D
+            {
+                Mesh             = new QuadMesh { Size = new Vector2(barW * 0.96f, barH * 0.58f) },
+                MaterialOverride = _hpBarMat,
+                Position         = new Vector3(poleX, barY, 0.008f),
+            };
+            AddChild(_hpBarFg);
         }
 
         // ================================================================

@@ -53,6 +53,10 @@ namespace Natiolation.UI
 		private Label         _cityBuildingsLabel = null!;
 
 		private Control       _hintPanel          = null!;
+		private Control       _armyInfoPanel      = null!;
+		private Label         _armyCountLabel     = null!;
+		private VBoxContainer _armyUnitsList      = null!;
+		private Army?         _displayedArmy      = null;
 		private Control       _researchActivePanel = null!;
 		private Label         _researchNameLabel   = null!;
 		private ProgressBar   _researchBar         = null!;
@@ -335,6 +339,16 @@ namespace Natiolation.UI
 			_cityInfoPanel.SetMeta("container", cBox);
 			col.AddChild(cBox);
 
+			// ── Ejército ──────────────────────────────────────────────────
+			_armyInfoPanel         = BuildArmyPanel();
+			_armyInfoPanel.Visible = false;
+
+			var aBox = BuildSection(_armyInfoPanel);
+			aBox.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+			aBox.Visible             = false;
+			_armyInfoPanel.SetMeta("container", aBox);
+			col.AddChild(aBox);
+
 			// ── Panel investigación activa ────────────────────────────────
 			_researchActivePanel         = BuildResearchActivePanel();
 			_researchActivePanel.Visible = false;
@@ -365,6 +379,91 @@ namespace Natiolation.UI
 			col.AddChild(hBox);
 
 			return col;
+		}
+
+		// ── Panel de ejército ─────────────────────────────────────────────
+
+		private Control BuildArmyPanel()
+		{
+			var col = VBox(6);
+			col.MouseFilter = Control.MouseFilterEnum.Ignore;
+
+			col.AddChild(Header("EJÉRCITO SELECCIONADO"));
+
+			_armyCountLabel = Lbl("", 22, TextMain);
+			col.AddChild(_armyCountLabel);
+
+			col.AddChild(Lbl("Unidades — click [Desplegar] y luego click D en hex adyacente:", 14, TextDim));
+
+			var scroll = new ScrollContainer();
+			scroll.CustomMinimumSize   = new Vector2(0, 80);
+			scroll.SizeFlagsVertical   = Control.SizeFlags.ExpandFill;
+			scroll.MouseFilter         = Control.MouseFilterEnum.Stop;
+
+			_armyUnitsList = VBox(4);
+			_armyUnitsList.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+			scroll.AddChild(_armyUnitsList);
+			col.AddChild(scroll);
+
+			return col;
+		}
+
+		private void RefreshArmyPanel(Army army)
+		{
+			_displayedArmy = army;
+			_armyCountLabel.Text = $"⚔  {army.Count} unidades  |  ⚡ {army.RemainingMovement}/{army.MaxMovement}";
+			_armyCountLabel.AddThemeColorOverride("font_color", army.CivColor.Lightened(0.22f));
+
+			foreach (var child in _armyUnitsList.GetChildren()) child.QueueFree();
+
+			foreach (var unit in army.Units)
+			{
+				var row = HBox(10);
+				row.MouseFilter = Control.MouseFilterEnum.Ignore;
+
+				var stats    = UnitTypeData.GetStats(unit.UnitType);
+				bool isChamp = unit == army.Champion;
+
+				// Icono + nombre
+				string icon = isChamp ? "⚔" : "•";
+				var nameLabel = Lbl($"{icon}  {stats.DisplayName}", 17,
+				                    isChamp ? Gold : TextMain);
+				nameLabel.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+				row.AddChild(nameLabel);
+
+				// Barra HP
+				var hpBar = new ProgressBar();
+				hpBar.CustomMinimumSize   = new Vector2(80, 12);
+				hpBar.ShowPercentage      = false;
+				hpBar.SizeFlagsVertical   = Control.SizeFlags.ShrinkCenter;
+				hpBar.MinValue = 0; hpBar.MaxValue = unit.MaxHP; hpBar.Value = unit.CurrentHP;
+				float hpRatio  = unit.MaxHP > 0 ? (float)unit.CurrentHP / unit.MaxHP : 0f;
+				var hpColor    = hpRatio > 0.5f ? CFood : (hpRatio > 0.25f ? Gold : new Color(0.9f, 0.2f, 0.2f));
+				var hpFill     = new StyleBoxFlat { BgColor = hpColor }; hpFill.SetCornerRadiusAll(2);
+				var hpBg       = new StyleBoxFlat { BgColor = BgInset };  hpBg.SetCornerRadiusAll(2);
+				hpBar.AddThemeStyleboxOverride("fill",       hpFill);
+				hpBar.AddThemeStyleboxOverride("background", hpBg);
+				row.AddChild(hpBar);
+
+				// Botón Desplegar
+				var deployBtn = new Button { Text = "Desplegar" };
+				deployBtn.CustomMinimumSize = new Vector2(80, 0);
+				deployBtn.AddThemeStyleboxOverride("normal",  RoundedBtn(BtnBlue,  5));
+				deployBtn.AddThemeStyleboxOverride("hover",   RoundedBtn(BtnBlueH, 5));
+				deployBtn.AddThemeStyleboxOverride("pressed", RoundedBtn(BtnBlue,  5));
+				deployBtn.AddThemeStyleboxOverride("focus",   RoundedBtn(BtnBlue,  5));
+				deployBtn.AddThemeColorOverride("font_color", Colors.White);
+				deployBtn.AddThemeFontSizeOverride("font_size", 13);
+				var capturedUnit = unit;
+				deployBtn.Pressed += () =>
+				{
+					if (_displayedArmy != null)
+						_unitManager.PrepareDeployUnit(capturedUnit);
+				};
+				row.AddChild(deployBtn);
+
+				_armyUnitsList.AddChild(row);
+			}
 		}
 
 		private Control BuildResearchActivePanel()
@@ -833,9 +932,37 @@ namespace Natiolation.UI
 			_unitManager.CombatEvent     += ShowToast;
 			_unitManager.ResearchRequired += () => SetActivePanel(4);
 			_unitManager.OpenTechPicker   += () => SetActivePanel(4);
+
+			// C# events para ejércitos (Action, no Godot signal)
+			_unitManager.ArmySelectedEvent   += OnArmySelected;
+			_unitManager.ArmyDeselectedEvent += OnArmyDeselected;
+
 			GameManager.Instance.TurnChanged    += OnTurnChanged;
 			GameManager.Instance.TechResearched += OnTechResearched;
 			_cityManager.CityEvent += ShowToast;
+		}
+
+		private void OnArmySelected(Army army)
+		{
+			SetActivePanel(5);
+			RefreshArmyPanel(army);
+
+			// Suscribirse a cambios de composición mientras el ejército esté seleccionado
+			army.CompositionChanged += OnArmyCompositionChanged;
+		}
+
+		private void OnArmyDeselected()
+		{
+			if (_displayedArmy != null)
+				_displayedArmy.CompositionChanged -= OnArmyCompositionChanged;
+			_displayedArmy = null;
+			SetActivePanel(0);
+		}
+
+		private void OnArmyCompositionChanged(Army army)
+		{
+			if (army == _displayedArmy)
+				RefreshArmyPanel(army);
 		}
 
 		private void OnUnitSelected(string name, Color civColor, int remaining, int max,
@@ -915,12 +1042,15 @@ namespace Natiolation.UI
 			bool hasC  = which == 2;
 			bool hasRA = which == 3;
 			bool hasTP = which == 4;
+			bool hasA  = which == 5;   // ejército
 			bool hasH  = which == 0;
 
 			GetContainerOf(_unitInfoPanel).Visible        = hasU;
 			_unitInfoPanel.Visible                        = hasU;
 			GetContainerOf(_cityInfoPanel).Visible        = hasC;
 			_cityInfoPanel.Visible                        = hasC;
+			GetContainerOf(_armyInfoPanel).Visible        = hasA;
+			_armyInfoPanel.Visible                        = hasA;
 			GetContainerOf(_researchActivePanel).Visible  = hasRA;
 			_researchActivePanel.Visible                  = hasRA;
 			GetContainerOf(_techPickerPanel).Visible      = hasTP;
