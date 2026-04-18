@@ -1,4 +1,5 @@
 using Godot;
+using Natiolation.Map;
 
 namespace Natiolation.Core
 {
@@ -40,6 +41,12 @@ namespace Natiolation.Core
         private bool    _manualPitch = false;   // si el usuario ajustó pitch manual, no auto-pitch
         private Vector2 _rotStart;
 
+        // Modo táctico — bloquea pan/zoom del jugador y guarda estado previo
+        private bool    _tacticalMode      = false;
+        private Vector3 _preTacticalTarget;
+        private float   _preTacticalDist;
+        private float   _preTacticalPitch;
+
         // Límites del mapa en coordenadas mundo (para 60×40 con HexSize=4)
         private const float WorldMaxX =  560f;
         private const float WorldMaxZ =  254f;
@@ -54,6 +61,54 @@ namespace Natiolation.Core
             SetupLighting();
             UpdateTransform();
             GetWindow().GrabFocus();
+
+            // Suscribirse a eventos de batalla táctica
+            TacticalBattleManager.BattleStarted += OnTacticalBattleStarted;
+            TacticalBattleManager.BattleEnded   += OnTacticalBattleEnded;
+        }
+
+        public override void _ExitTree()
+        {
+            TacticalBattleManager.BattleStarted -= OnTacticalBattleStarted;
+            TacticalBattleManager.BattleEnded   -= OnTacticalBattleEnded;
+        }
+
+        // ── Tactical view ─────────────────────────────────────────────────────
+
+        private void OnTacticalBattleStarted(TacticalBattleManager battle)
+        {
+            BeginTacticalView(HexTile3D.AxialToWorld(battle.ConflictHex.Q, battle.ConflictHex.R));
+        }
+
+        private void OnTacticalBattleEnded(bool _)
+        {
+            EndTacticalView();
+        }
+
+        /// <summary>Hace zoom al arena táctica bloqueando el control del jugador.</summary>
+        public void BeginTacticalView(Vector3 center, float zoomDist = 16f)
+        {
+            _preTacticalTarget = _target;
+            _preTacticalDist   = _targetDist;
+            _preTacticalPitch  = _pitch;
+
+            _target       = new Vector3(center.X, 0f, center.Z);
+            _velocity     = Vector3.Zero;
+            _targetDist   = zoomDist;
+            _pitch        = 48f;
+            _manualPitch  = false;
+            _tacticalMode = true;
+        }
+
+        /// <summary>Restaura la cámara al estado pre-táctico.</summary>
+        public void EndTacticalView()
+        {
+            _tacticalMode = false;
+            _target       = _preTacticalTarget;
+            _targetDist   = _preTacticalDist;
+            _pitch        = _preTacticalPitch;
+            _velocity     = Vector3.Zero;
+            _manualPitch  = false;
         }
 
         // ── Permite que UnitManager centre la cámara en el spawn ──────────
@@ -107,6 +162,9 @@ namespace Natiolation.Core
 
         public override void _Input(InputEvent @event)
         {
+            // En modo táctico no se permite zoom ni pan manual
+            if (_tacticalMode) return;
+
             if (@event is InputEventMouseButton mb)
             {
                 if (mb.ButtonIndex == MouseButton.WheelUp)
@@ -141,10 +199,12 @@ namespace Natiolation.Core
 
         /// <summary>
         /// Calcula la velocidad de pan deseada sumando teclado + edge panning.
-        /// Devuelve un vector en unidades/segundo (sin multiplicar por dt).
+        /// En modo táctico retorna Vector3.Zero para bloquear el control del jugador.
         /// </summary>
         private Vector3 ComputeInputVelocity(float dt)
         {
+            if (_tacticalMode) return Vector3.Zero;
+
             var dir = Vector2.Zero;
 
             // Teclado

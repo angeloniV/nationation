@@ -70,6 +70,7 @@ namespace Natiolation.Units
 
             _cityManager.UnitProductionComplete += OnUnitProductionComplete;
             GameManager.Instance.WarDeclared    += OnWarDeclared;
+            TacticalBattleManager.BattleEnded   += OnTacticalBattleEnded;
 
             // ── ConfirmationDialog para fusionar unidades ─────────────────
             var cl = new CanvasLayer { Layer = 25 };
@@ -145,6 +146,9 @@ namespace Natiolation.Units
 
         public override void _UnhandledInput(InputEvent @event)
         {
+            // Durante combate táctico, el TacticalBattleManager maneja el input
+            if (TacticalBattleManager.Instance?.IsActive == true) return;
+
             if (@event is InputEventMouseMotion mm)
             {
                 var newHex = ScreenToHex(mm.Position);
@@ -259,16 +263,24 @@ namespace Natiolation.Units
             // 2a. Mover o atacar con ejército seleccionado
             if (_selectedArmy != null && _reachable.Contains(hex))
             {
-                // Unidad enemiga → atacar con ejército
+                // Unidad enemiga → combate táctico (ejército vs unidad)
                 if (_byHex.TryGetValue(hex, out var enemyUnit) && enemyUnit.CivIndex != _selectedArmy.CivIndex)
                 {
-                    TryAttackArmyVsUnit(_selectedArmy, enemyUnit);
+                    var atkUnits = _selectedArmy.Units.ToList();
+                    var defUnits = new System.Collections.Generic.List<Unit> { enemyUnit };
+                    var conflictHex = new HexCoord(hex.Q, hex.R);
+                    TacticalBattleManager.Instance?.StartBattle(
+                        atkUnits, defUnits, conflictHex, _map, _selectedArmy, null);
                     return;
                 }
-                // Ejército enemigo → atacar
+                // Ejército enemigo → combate táctico (ejército vs ejército)
                 if (_armiesByHex.TryGetValue(hex, out var enemyArmy) && enemyArmy.CivIndex != _selectedArmy.CivIndex)
                 {
-                    TryAttackArmyVsArmy(_selectedArmy, enemyArmy);
+                    var atkUnits = _selectedArmy.Units.ToList();
+                    var defUnits = enemyArmy.Units.ToList();
+                    var conflictHex = new HexCoord(hex.Q, hex.R);
+                    TacticalBattleManager.Instance?.StartBattle(
+                        atkUnits, defUnits, conflictHex, _map, _selectedArmy, enemyArmy);
                     return;
                 }
                 // Unidad aliada → ofrecer unirse al ejército
@@ -289,17 +301,27 @@ namespace Natiolation.Units
             // 2b. Mover o atacar con unidad seleccionada
             if (_selected != null && _reachable.Contains(hex))
             {
-                // Unidad enemiga → atacar
+                // Unidad enemiga → combate táctico (unidad vs unidad)
                 if (_byHex.TryGetValue(hex, out var occupant) && occupant.CivIndex != _selected.CivIndex)
                 {
                     if (UnitTypeData.GetStats(_selected.UnitType).CombatStrength > 0)
-                        TryAttack(_selected, occupant);
+                    {
+                        var atkUnits = new System.Collections.Generic.List<Unit> { _selected };
+                        var defUnits = new System.Collections.Generic.List<Unit> { occupant };
+                        var conflictHex = new HexCoord(hex.Q, hex.R);
+                        TacticalBattleManager.Instance?.StartBattle(
+                            atkUnits, defUnits, conflictHex, _map, null, null);
+                    }
                     return;
                 }
-                // Ejército enemigo → atacar con unidad (usa champion del ejército como defensor)
+                // Ejército enemigo → combate táctico (unidad vs ejército)
                 if (_armiesByHex.TryGetValue(hex, out var defArmy) && defArmy.CivIndex != _selected.CivIndex)
                 {
-                    TryAttackUnitVsArmy(_selected, defArmy);
+                    var atkUnits = new System.Collections.Generic.List<Unit> { _selected };
+                    var defUnits = defArmy.Units.ToList();
+                    var conflictHex = new HexCoord(hex.Q, hex.R);
+                    TacticalBattleManager.Instance?.StartBattle(
+                        atkUnits, defUnits, conflictHex, _map, null, defArmy);
                     return;
                 }
                 // Ejército aliado → ofrecer unirse
@@ -952,7 +974,7 @@ namespace Natiolation.Units
         {
             var reachable = Pathfinder.GetReachable(_map, unit.Q, unit.R, unit.RemainingMovement);
 
-            // Si estamos en guerra y hay un enemigo adyacente alcanzable → atacar
+            // Si estamos en guerra y hay un enemigo adyacente alcanzable → combate táctico
             if (GameManager.Instance.IsAtWar(unit.CivIndex, 0)
                 && UnitTypeData.GetStats(unit.UnitType).CombatStrength > 0)
             {
@@ -960,7 +982,15 @@ namespace Natiolation.Units
                 {
                     if (_byHex.TryGetValue(hex, out var occ) && occ.CivIndex != unit.CivIndex)
                     {
-                        TryAttack(unit, occ);
+                        // IA inicia combate táctico — solo si no hay ya una batalla activa
+                        if (TacticalBattleManager.Instance?.IsActive != true)
+                        {
+                            var atkUnits = new System.Collections.Generic.List<Unit> { unit };
+                            var defUnits = new System.Collections.Generic.List<Unit> { occ };
+                            var conflictHex = new HexCoord(hex.Q, hex.R);
+                            TacticalBattleManager.Instance?.StartBattle(
+                                atkUnits, defUnits, conflictHex, _map, null, null);
+                        }
                         return;
                     }
                 }
@@ -1092,10 +1122,48 @@ namespace Natiolation.Units
             };
         }
 
+        public override void _ExitTree()
+        {
+            TacticalBattleManager.BattleEnded -= OnTacticalBattleEnded;
+        }
+
         private void OnWarDeclared(int a, int b)
         {
             if (a == 0 || b == 0)
                 EmitSignal(SignalName.CombatEvent, "⚔  ¡GUERRA DECLARADA!");
+        }
+
+        private void OnTacticalBattleEnded(bool attackersWon)
+        {
+            // Limpiar unidades muertas (HP <= 0) que el combate táctico pudo haber dejado
+            var deadUnits = _units.Where(u => !IsInstanceValid(u) || u.CurrentHP <= 0).ToList();
+            foreach (var dead in deadUnits)
+            {
+                _byHex.Remove(new HexCoord(dead.Q, dead.R));
+                _units.Remove(dead);
+                if (IsInstanceValid(dead)) dead.QueueFree();
+            }
+
+            // Limpiar ejércitos sin unidades vivas
+            var deadArmies = _armies.Where(a => !IsInstanceValid(a) || a.Count == 0).ToList();
+            foreach (var da in deadArmies)
+            {
+                _armiesByHex.Remove(new HexCoord(da.Q, da.R));
+                _armies.Remove(da);
+                if (IsInstanceValid(da)) da.QueueFree();
+            }
+
+            // Restaurar visibilidad de unidades sobrevivientes en ejércitos
+            // (el manager de ejércitos las tiene con Visible=false para el modelo del banner)
+            foreach (var army in _armies)
+                foreach (var unit in army.Units)
+                    if (IsInstanceValid(unit)) unit.Visible = false;
+
+            // Refrescar niebla de guerra
+            RefreshFog();
+
+            string msg = attackersWon ? "⚔  Victoria táctica — atacantes ganaron" : "☠  Derrota táctica — defensores resistieron";
+            EmitSignal(SignalName.CombatEvent, msg);
         }
 
         // ================================================================
