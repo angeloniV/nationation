@@ -458,29 +458,54 @@ namespace Natiolation.Map
 		}
 
 		/// <summary>
-		/// Recalcula la visibilidad de todo el mapa basado en el conjunto de observadores
-		/// provistos. Cada observer es (q, r, radius).
+		/// Recalcula la visibilidad del mapa usando BFS desde cada observador.
+		/// Complejidad: O(observadores × sight²) — antes era O(observadores × MapW × MapH).
+		/// Para sight=4, mapa 60×40 y 5 observadores: ~250 ops vs 12 000 antes.
 		///
-		/// • Tiles dentro del radio de cualquier observador → visible + explorado.
-		/// • Tiles explorados pero fuera de todos los radios → explorado (niebla).
+		/// • Tiles dentro del radio → visible + explorado.
+		/// • Tiles explorados fuera del radio → explorado (niebla).
 		/// • Tiles nunca vistos → inexplorado (oscuro).
-		///
-		/// Emite TilesRevealed al finalizar.
 		/// </summary>
 		public void RefreshVisibility(System.Collections.Generic.IEnumerable<(int q, int r, int sight)> observers)
 		{
-			// Paso 1: marcar todos los tiles visibles como "en niebla" (mantienen explorado)
+			// Paso 1: tiles actualmente visibles → niebla (mantienen WasExplored)
 			for (int q = 0; q < MapWidth; q++)
 				for (int r = 0; r < MapHeight; r++)
 					if (_tiles[q, r].TileVisible)
 						_tiles[q, r].SetVisible(false, true);
 
-			// Paso 2: revelar según todos los observadores
+			// Paso 2: BFS desde cada observador
+			var newVisible = new System.Collections.Generic.HashSet<(int, int)>();
+			int[] dq = {  1, -1,  0,  0,  1, -1 };
+			int[] dr = {  0,  0,  1, -1, -1,  1 };
+			var queue   = new System.Collections.Generic.Queue<(int q, int r, int dist)>();
+			var visited = new System.Collections.Generic.HashSet<(int, int)>();
+
 			foreach (var (oq, or_, sight) in observers)
-				for (int q = 0; q < MapWidth; q++)
-					for (int r = 0; r < MapHeight; r++)
-						if (HexDistance(q, r, oq, or_) <= sight)
-							_tiles[q, r].SetVisible(true, true);
+			{
+				queue.Clear();
+				visited.Clear();
+				queue.Enqueue((oq, or_, 0));
+				visited.Add((oq, or_));
+
+				while (queue.Count > 0)
+				{
+					var (q, r, dist) = queue.Dequeue();
+					newVisible.Add((q, r));
+					if (dist >= sight) continue;
+					for (int i = 0; i < 6; i++)
+					{
+						int nq = q + dq[i], nr = r + dr[i];
+						if (nq < 0 || nq >= MapWidth || nr < 0 || nr >= MapHeight) continue;
+						if (!visited.Add((nq, nr))) continue;
+						queue.Enqueue((nq, nr, dist + 1));
+					}
+				}
+			}
+
+			// Paso 3: marcar todos los tiles del BFS como visibles
+			foreach (var (q, r) in newVisible)
+				_tiles[q, r].SetVisible(true, true);
 
 			EmitSignal(SignalName.TilesRevealed);
 		}

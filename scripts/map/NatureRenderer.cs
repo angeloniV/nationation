@@ -1,5 +1,6 @@
 using Godot;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Natiolation.Map
 {
@@ -7,29 +8,29 @@ namespace Natiolation.Map
     /// Renderiza toda la vegetación y decoración estática del mapa usando
     /// MultiMeshInstance3D en lugar de nodos individuales.
     ///
-    /// Un único MultiMesh por tipo de asset (ej. un MultiMesh para pinos,
-    /// otro para rocas). Elimina miles de draw calls al consolidar toda
-    /// la naturaleza de la misma especie en una única llamada de GPU.
+    /// Fog of War por tile:
+    ///   • Los assets se registran con RegisterForTile(path, q, r, transform).
+    ///   • Solo se muestran los tiles que han sido explorados (SetTileExplored).
+    ///   • Esto garantiza que los árboles respeten el fog sin coste por frame.
     ///
-    /// Flujo:
-    ///   1. HexTile3D.TrySpawnNature llama RegisterAndRebuild() cuando un tile
-    ///      es revelado por el fog-of-war (lazy loading idéntico al original).
-    ///   2. RegisterAndRebuild acumula el Transform3D y reconstruye el buffer
-    ///      del MultiMesh correspondiente (O(n) pero n es pequeño porque se
-    ///      llama sólo en la fase de exploración, no cada frame).
-    ///   3. El resultado: 1 draw call por especie en lugar de 1 por árbol.
+    /// Árboles blancos fix:
+    ///   • NO se aplica MaterialOverride en el MultiMeshInstance3D.
+    ///   • El Mesh extraído del GLB retiene sus materiales de superficie originales.
     /// </summary>
     public partial class NatureRenderer : Node3D
     {
         public static NatureRenderer? Instance { get; private set; }
 
-        // Transforms acumulados por ruta de GLB
-        private readonly Dictionary<string, List<Transform3D>> _transforms = new();
+        // Transforms por GLB, indexados por tile (q, r) para soporte de fog
+        private readonly Dictionary<string, Dictionary<(int q, int r), Transform3D>> _tileTransforms = new();
+
+        // Tiles que el jugador ya ha explorado (fog revelado al menos una vez)
+        private readonly HashSet<(int q, int r)> _exploredTiles = new();
 
         // MultiMeshInstance3D activo por ruta de GLB
         private readonly Dictionary<string, MultiMeshInstance3D> _meshInstances = new();
 
-        // Caché de meshes extraídos de los GLBs (static: sobrevive entre escenas)
+        // Caché de meshes extraídos de los GLBs
         private static readonly Dictionary<string, Mesh?> _meshCache = new();
 
         // ── Ciclo de vida ────────────────────────────────────────────────
@@ -49,31 +50,54 @@ namespace Natiolation.Map
         // ================================================================
 
         /// <summary>
-        /// Registra una instancia de naturaleza y reconstruye el MultiMesh
-        /// del GLB correspondiente con el transform en espacio mundo.
+        /// Registra un asset de naturaleza asociado al tile (q, r).
+        /// El asset NO se muestra hasta que SetTileExplored(q, r) sea llamado.
+        /// Llamado por HexTile3D.TrySpawnNature al revelarse un tile por primera vez.
         /// </summary>
-        public void RegisterAndRebuild(string glbPath, Transform3D worldTransform)
+        public void RegisterForTile(string glbPath, int q, int r, Transform3D worldTransform)
         {
-            if (!_transforms.TryGetValue(glbPath, out var list))
+            if (!_tileTransforms.TryGetValue(glbPath, out var dict))
             {
-                list = new List<Transform3D>();
-                _transforms[glbPath] = list;
+                dict = new Dictionary<(int, int), Transform3D>();
+                _tileTransforms[glbPath] = dict;
             }
-            list.Add(worldTransform);
+            // Un tile puede tener un único transform por GLB (el más reciente gana)
+            dict[(q, r)] = worldTransform;
+            // Si el tile ya fue explorado antes de registrar (ej. reload), mostrar inmediatamente
+            if (_exploredTiles.Contains((q, r)))
+                RebuildMultiMesh(glbPath);
+        }
 
-            RebuildMultiMesh(glbPath, list);
+        /// <summary>
+        /// Marca el tile (q, r) como explorado y reconstruye los MultiMeshes afectados.
+        /// Llamado por HexTile3D.SetVisible cuando un tile se explora por primera vez.
+        /// </summary>
+        public void SetTileExplored(int q, int r)
+        {
+            if (!_exploredTiles.Add((q, r))) return;   // ya estaba explorado
+
+            // Reconstruir solo los GLBs que tienen datos para este tile
+            foreach (var (path, dict) in _tileTransforms)
+                if (dict.ContainsKey((q, r)))
+                    RebuildMultiMesh(path);
         }
 
         // ================================================================
         //  INTERNAL
         // ================================================================
 
-        private void RebuildMultiMesh(string glbPath, List<Transform3D> transforms)
+        private void RebuildMultiMesh(string glbPath)
         {
             var mesh = GetOrExtractMesh(glbPath);
             if (mesh == null) return;
 
-            // Crear o reutilizar el MultiMeshInstance3D
+            // Filtrar: solo los tiles explorados tienen sus assets visibles
+            var visibleTransforms = _tileTransforms.TryGetValue(glbPath, out var dict)
+                ? dict.Where(kv => _exploredTiles.Contains(kv.Key))
+                      .Select(kv => kv.Value)
+                      .ToList()
+                : new List<Transform3D>();
+
             if (!_meshInstances.TryGetValue(glbPath, out var mmi))
             {
                 var mm = new MultiMesh
@@ -81,30 +105,22 @@ namespace Natiolation.Map
                     TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
                     Mesh            = mesh,
                 };
-
                 mmi = new MultiMeshInstance3D { Multimesh = mm };
-
-                // Vertex colors: misma fix que ApplyVertexColorFix pero a nivel de geometría
-                var mat = new StandardMaterial3D
-                {
-                    VertexColorUseAsAlbedo = true,
-                    Roughness              = 0.85f,
-                };
-                mmi.MaterialOverride = mat;
+                // Sin MaterialOverride → los materiales del GLB se usan directamente.
+                // Esto preserva colores, texturas y roughness originales del asset.
                 AddChild(mmi);
                 _meshInstances[glbPath] = mmi;
             }
 
-            // Reconstruir el buffer de transforms
             var multiMesh = mmi.Multimesh;
-            multiMesh.InstanceCount = transforms.Count;
-            for (int i = 0; i < transforms.Count; i++)
-                multiMesh.SetInstanceTransform(i, transforms[i]);
+            multiMesh.InstanceCount = visibleTransforms.Count;
+            for (int i = 0; i < visibleTransforms.Count; i++)
+                multiMesh.SetInstanceTransform(i, visibleTransforms[i]);
         }
 
         /// <summary>
         /// Extrae el primer Mesh encontrado dentro del GLB (cacheado).
-        /// Libera el nodo temporal tras la extracción.
+        /// Libera el nodo temporal pero retiene el Mesh resource (con sus materiales).
         /// </summary>
         private static Mesh? GetOrExtractMesh(string glbPath)
         {
@@ -126,7 +142,7 @@ namespace Natiolation.Map
             var inst = scene.Instantiate();
             var mi   = FindFirstMeshInstance(inst);
             var mesh = mi?.Mesh;
-            inst.Free();   // liberar — sólo necesitábamos el Mesh resource
+            inst.Free();   // liberar nodo; el Mesh resource sigue vivo (referenciado por caché)
 
             _meshCache[glbPath] = mesh;
             return mesh;

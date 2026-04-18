@@ -66,6 +66,8 @@ namespace Natiolation.UI
             Visible = false;
             BuildPanel();
             ShowCategory(0);
+            // Botón flotante unificado — Anchor Top-Right, OffsetRight=-10, OffsetTop=10
+            PanelUtils.AddCloseButton(this, () => Visible = false);
         }
 
         public void Toggle()
@@ -160,22 +162,10 @@ namespace Natiolation.UI
                 _catButtons.Add(btn);
             }
 
-            // Spacer + botón cerrar al final del sidebar
+            // Spacer al final del sidebar (el botón cerrar es ahora el flotante top-right)
             var sidespacer = new Control();
             sidespacer.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
             sideVbox.AddChild(sidespacer);
-
-            var closeBtn = new Button { Text = "✕  Cerrar" };
-            closeBtn.AddThemeFontSizeOverride("font_size", 16);
-            closeBtn.AddThemeColorOverride("font_color", TextDim);
-            closeBtn.CustomMinimumSize = new Vector2(0, 42);
-            var closePad = new MarginContainer();
-            closePad.AddThemeConstantOverride("margin_left",   8);
-            closePad.AddThemeConstantOverride("margin_right",  8);
-            closePad.AddThemeConstantOverride("margin_bottom", 8);
-            sideVbox.AddChild(closePad);
-            closePad.AddChild(closeBtn);
-            closeBtn.Pressed += () => Visible = false;
 
             // ── Área de contenido ──────────────────────────────────────
             var contentPanel = new PanelContainer();

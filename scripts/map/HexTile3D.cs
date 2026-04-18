@@ -107,21 +107,30 @@ namespace Natiolation.Map
 
 		public void SetVisible(bool visible, bool explored)
 		{
+			bool wasExploredBefore = WasExplored;
+
 			TileVisible = visible;
 			WasExplored = explored || WasExplored;
 
-			// Lazy-load de decoraciones al revelar por primera vez
+			// Lazy-load de decoraciones al revelarse por primera vez
+			// (TrySpawnNature dentro de AddDecorations registra en NatureRenderer)
 			if (TileVisible && !_decorAdded)
 			{
 				AddDecorations();
 				_decorAdded = true;
 			}
 
-			// Delegar fog al shader de terreno unificado
+			// Notificar al shader de terreno (TerrainRenderer lee este pixel cada frame)
 			TerrainRenderer.Instance?.UpdateFog(Q, R, TileVisible, WasExplored);
 
-			// Decoraciones siguen controladas por fog (árboles, picos, etc.)
-			SetDecorVisible(TileVisible);
+			// Primera exploración → liberar los assets de NatureRenderer para este tile
+			if (WasExplored && !wasExploredBefore)
+				NatureRenderer.Instance?.SetTileExplored(Q, R);
+
+			// Decoraciones procedurales (hijos de HexTile3D): visibles si explorado.
+			// Esto coincide con el comportamiento del shader: tiles en niebla se ven
+			// oscurecidos pero no desaparecen una vez explorados.
+			SetDecorVisible(WasExplored);
 		}
 
 		private void ApplyFog()
@@ -792,7 +801,7 @@ namespace Natiolation.Map
 				Vector3 worldPos = GlobalPosition + parent.Position + localPos;
 				var basis = new Basis(Vector3.Up, Mathf.DegToRad(rotY))
 								.Scaled(Vector3.One * scale);
-				NatureRenderer.Instance.RegisterAndRebuild(assetPath, new Transform3D(basis, worldPos));
+				NatureRenderer.Instance.RegisterForTile(assetPath, Q, R, new Transform3D(basis, worldPos));
 				return true;
 			}
 

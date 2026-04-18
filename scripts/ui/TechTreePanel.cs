@@ -119,6 +119,8 @@ namespace Natiolation.UI
             MouseFilter = MouseFilterEnum.Stop;
             Visible = false;
             BuildPanel();
+            // Botón flotante unificado — Anchor Top-Right, OffsetRight=-10, OffsetTop=10
+            PanelUtils.AddCloseButton(this, () => Visible = false);
         }
 
         public override void _UnhandledInput(InputEvent @event)
@@ -228,11 +230,7 @@ namespace Natiolation.UI
             hint.VerticalAlignment = VerticalAlignment.Center;
             row.AddChild(hint);
 
-            var closeBtn = new Button { Text = "✕" };
-            StyleBtn(closeBtn, new Color(0.45f, 0.08f, 0.06f), new Color(0.65f, 0.12f, 0.09f));
-            closeBtn.CustomMinimumSize = new Vector2(32, 32);
-            closeBtn.Pressed += () => Visible = false;
-            row.AddChild(closeBtn);
+            // Close button is now a floating overlay via PanelUtils.AddCloseButton (called in BuildPanel)
 
             return header;
         }
