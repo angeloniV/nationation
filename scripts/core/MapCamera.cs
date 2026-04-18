@@ -14,20 +14,30 @@ namespace Natiolation.Core
     /// </summary>
     public partial class MapCamera : Camera3D
     {
-        [Export] public float PanSpeed      = 16f;
+        [Export] public float PanSpeed     = 18f;
         [Export] public float ZoomSpeed    = 2.5f;
         [Export] public float ZoomMin      = 6f;
         [Export] public float ZoomMax      = 58f;
-        [Export] public float ZoomSmoothK  = 12f;   // velocidad de interpolación del zoom
+        [Export] public float ZoomSmoothK  = 10f;   // suavidad del zoom
+        [Export] public float PanSmoothK   = 9f;    // suavidad de la inercia del pan
+        [Export] public float EdgePanSize  = 20f;   // píxeles desde el borde que activan edge panning
+
+        // Pitch auto según zoom
+        [Export] public float PitchNear    = 35f;   // ángulo al hacer zoom acercado (isométrico)
+        [Export] public float PitchFar     = 70f;   // ángulo al hacer zoom alejado (cenital)
+        [Export] public float PitchSmoothK = 4f;    // suavidad de la interpolación de pitch
 
         // Estado de cámara
         private Vector3 _target      = new(160f, 0f, 108f);
-        private float   _dist        = 28f;          // distancia actual (interpolada)
-        private float   _targetDist  = 28f;          // distancia objetivo (cambia en scroll/tecla)
+        private Vector3 _velocity    = Vector3.Zero;  // inercia del pan
+        private float   _dist        = 28f;
+        private float   _targetDist  = 28f;
         private float   _pitch       = 52f;
         private float   _yaw         = 10f;
 
-        private bool    _rotating  = false;
+        // Rotación manual por botón medio
+        private bool    _rotating    = false;
+        private bool    _manualPitch = false;   // si el usuario ajustó pitch manual, no auto-pitch
         private Vector2 _rotStart;
 
         // Límites del mapa en coordenadas mundo (para 60×40 con HexSize=4)
@@ -49,79 +59,126 @@ namespace Natiolation.Core
         // ── Permite que UnitManager centre la cámara en el spawn ──────────
         public void FocusOn(Vector3 worldPos, bool immediate = true)
         {
-            _target = new Vector3(worldPos.X, 0f, worldPos.Z);
+            _target   = new Vector3(worldPos.X, 0f, worldPos.Z);
+            _velocity = Vector3.Zero;
             if (immediate) UpdateTransform();
+        }
+
+        // ================================================================
+        //  PROCESS — inercia + edge panning + auto-pitch
+        // ================================================================
+
+        public override void _Process(double delta)
+        {
+            float dt = (float)delta;
+
+            // 1. Recopilar input de teclado/edge pan como velocidad deseada
+            var inputVel = ComputeInputVelocity(dt);
+
+            // 2. Inercia (smooth dampening): la velocidad real se acerca a la deseada
+            _velocity = _velocity.Lerp(inputVel, dt * PanSmoothK);
+
+            // Aplicar velocidad al target con clamp de mapa
+            _target += _velocity * dt;
+            _target.X = Mathf.Clamp(_target.X, -WorldPad, WorldMaxX + WorldPad);
+            _target.Z = Mathf.Clamp(_target.Z, -WorldPad, WorldMaxZ + WorldPad);
+
+            // 3. Zoom suave
+            bool zoomChanged = !Mathf.IsEqualApprox(_dist, _targetDist, 0.01f);
+            if (zoomChanged)
+                _dist = Mathf.Lerp(_dist, _targetDist, dt * ZoomSmoothK);
+
+            // 4. Zoom pitching — auto-ajusta el ángulo cenital según la distancia
+            //    (sólo si el usuario no está rotando manualmente)
+            if (!_manualPitch)
+            {
+                float t           = Mathf.InverseLerp(ZoomMin, ZoomMax, _targetDist);
+                float autoPitch   = Mathf.Lerp(PitchNear, PitchFar, t);
+                _pitch            = Mathf.Lerp(_pitch, autoPitch, dt * PitchSmoothK);
+            }
+
+            bool moving = _velocity.LengthSquared() > 0.0001f || zoomChanged;
+            if (moving) UpdateTransform();
         }
 
         // ================================================================
         //  INPUT
         // ================================================================
 
-        public override void _Process(double delta)
-        {
-            float dt = (float)delta;
-            HandleKeyboardPan(dt);
-            HandleKeyboardZoom(dt);
-
-            // Zoom suave: interpola la distancia actual hacia la objetivo
-            if (!Mathf.IsEqualApprox(_dist, _targetDist, 0.01f))
-            {
-                _dist = Mathf.Lerp(_dist, _targetDist, dt * ZoomSmoothK);
-                UpdateTransform();
-            }
-        }
-
         public override void _Input(InputEvent @event)
         {
             if (@event is InputEventMouseButton mb)
             {
                 if (mb.ButtonIndex == MouseButton.WheelUp)
-                    _targetDist = Mathf.Clamp(_targetDist - ZoomSpeed, ZoomMin, ZoomMax);
+                {
+                    _targetDist  = Mathf.Clamp(_targetDist - ZoomSpeed, ZoomMin, ZoomMax);
+                    _manualPitch = false;   // nueva distancia → reactivar auto-pitch
+                }
                 else if (mb.ButtonIndex == MouseButton.WheelDown)
-                    _targetDist = Mathf.Clamp(_targetDist + ZoomSpeed, ZoomMin, ZoomMax);
+                {
+                    _targetDist  = Mathf.Clamp(_targetDist + ZoomSpeed, ZoomMin, ZoomMax);
+                    _manualPitch = false;
+                }
                 else if (mb.ButtonIndex == MouseButton.Middle)
-                    { _rotating = mb.Pressed; _rotStart = mb.Position; }
+                {
+                    _rotating = mb.Pressed;
+                    _rotStart = mb.Position;
+                }
             }
 
             if (@event is InputEventMouseMotion mm && _rotating)
             {
-                _yaw   -= mm.Relative.X * 0.35f;
-                _pitch  = Mathf.Clamp(_pitch - mm.Relative.Y * 0.18f, 20f, 80f);
+                _yaw         -= mm.Relative.X * 0.35f;
+                _pitch         = Mathf.Clamp(_pitch - mm.Relative.Y * 0.18f, 20f, 80f);
+                _manualPitch   = true;   // el usuario ajustó pitch manualmente
                 UpdateTransform();
             }
         }
 
-        private void HandleKeyboardZoom(float dt)
-        {
-            // +/= acercar   –  alejar   (se mantiene presionado para zoom continuo)
-            float zoomDelta = 0f;
-            if (Input.IsKeyPressed(Key.Plus)  || Input.IsKeyPressed(Key.Equal)) zoomDelta -= 1f;
-            if (Input.IsKeyPressed(Key.Minus) || Input.IsKeyPressed(Key.KpSubtract)) zoomDelta += 1f;
-            if (zoomDelta == 0f) return;
-            _targetDist = Mathf.Clamp(_targetDist + zoomDelta * ZoomSpeed * dt * 8f, ZoomMin, ZoomMax);
-        }
+        // ================================================================
+        //  HELPERS
+        // ================================================================
 
-        private void HandleKeyboardPan(float dt)
+        /// <summary>
+        /// Calcula la velocidad de pan deseada sumando teclado + edge panning.
+        /// Devuelve un vector en unidades/segundo (sin multiplicar por dt).
+        /// </summary>
+        private Vector3 ComputeInputVelocity(float dt)
         {
             var dir = Vector2.Zero;
 
+            // Teclado
             if (Input.IsKeyPressed(Key.W) || Input.IsActionPressed("ui_up"))    dir.Y -= 1;
             if (Input.IsKeyPressed(Key.S) || Input.IsActionPressed("ui_down"))  dir.Y += 1;
             if (Input.IsKeyPressed(Key.A) || Input.IsActionPressed("ui_left"))  dir.X -= 1;
             if (Input.IsKeyPressed(Key.D) || Input.IsActionPressed("ui_right")) dir.X += 1;
 
-            if (dir == Vector2.Zero) return;
+            // Zoom por teclado continuo
+            float zoomDelta = 0f;
+            if (Input.IsKeyPressed(Key.Plus)  || Input.IsKeyPressed(Key.Equal))      zoomDelta -= 1f;
+            if (Input.IsKeyPressed(Key.Minus) || Input.IsKeyPressed(Key.KpSubtract)) zoomDelta += 1f;
+            if (zoomDelta != 0f)
+                _targetDist = Mathf.Clamp(_targetDist + zoomDelta * ZoomSpeed * dt * 8f, ZoomMin, ZoomMax);
 
-            dir = dir.Normalized() * PanSpeed * dt;
+            // Edge panning: activo sólo cuando el ratón está dentro de la ventana
+            var vp    = GetViewport();
+            var mouse = vp.GetMousePosition();
+            var size  = vp.GetVisibleRect().Size;
+            float ep  = EdgePanSize;
 
+            if (mouse.X < ep)                dir.X -= 1f - mouse.X / ep;
+            if (mouse.X > size.X - ep)       dir.X += 1f - (size.X - mouse.X) / ep;
+            if (mouse.Y < ep)                dir.Y -= 1f - mouse.Y / ep;
+            if (mouse.Y > size.Y - ep)       dir.Y += 1f - (size.Y - mouse.Y) / ep;
+
+            if (dir == Vector2.Zero) return Vector3.Zero;
+
+            dir = dir.Normalized();
             float yRad = Mathf.DegToRad(_yaw);
             var   fwd  = new Vector3(-Mathf.Sin(yRad), 0f, -Mathf.Cos(yRad));
             var   rgt  = new Vector3( Mathf.Cos(yRad), 0f, -Mathf.Sin(yRad));
 
-            _target += fwd * (-dir.Y) + rgt * dir.X;
-            _target.X = Mathf.Clamp(_target.X, -WorldPad, WorldMaxX + WorldPad);
-            _target.Z = Mathf.Clamp(_target.Z, -WorldPad, WorldMaxZ + WorldPad);
-            UpdateTransform();
+            return (fwd * (-dir.Y) + rgt * dir.X) * PanSpeed;
         }
 
         private void UpdateTransform()

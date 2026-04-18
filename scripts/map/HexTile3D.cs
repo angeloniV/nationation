@@ -769,14 +769,35 @@ namespace Natiolation.Map
 		private static readonly Dictionary<string, PackedScene> _natureCache = new();
 
 		/// <summary>
-		/// Carga un GLB de assets/nature/ y lo añade como hijo a un Node3D padre.
+		/// Registra una instancia de naturaleza en NatureRenderer (MultiMesh) si está disponible,
+		/// o instancia el GLB como nodo hijo como fallback.
 		/// Devuelve true si tuvo éxito (no se necesita fallback procedural).
-		/// Usa caché estático para evitar GD.Load en cada tile.
 		/// </summary>
 		private bool TrySpawnNature(string assetPath, Node3D parent,
 									 Vector3 localPos, float scale, float rotY = 0f)
 		{
-			if (!_natureCache.TryGetValue(assetPath, out var scene))
+			// ── Ruta rápida: MultiMesh via NatureRenderer ─────────────────
+			if (NatureRenderer.Instance != null)
+			{
+				// Verificar que el asset existe (usando la caché de PackedScene)
+				if (!_natureCache.ContainsKey(assetPath))
+				{
+					if (!ResourceLoader.Exists(assetPath)) return false;
+					// Registramos el path como "conocido" (value null = sólo marcador)
+					_natureCache[assetPath] = null!;
+				}
+
+				// Construir Transform3D en espacio mundo.
+				// GlobalPosition es la posición del tile; parent.Position es el offset local.
+				Vector3 worldPos = GlobalPosition + parent.Position + localPos;
+				var basis = new Basis(Vector3.Up, Mathf.DegToRad(rotY))
+								.Scaled(Vector3.One * scale);
+				NatureRenderer.Instance.RegisterAndRebuild(assetPath, new Transform3D(basis, worldPos));
+				return true;
+			}
+
+			// ── Fallback: instanciar como nodo (cuando NatureRenderer no está) ──
+			if (!_natureCache.TryGetValue(assetPath, out var scene) || scene == null)
 			{
 				if (!ResourceLoader.Exists(assetPath)) return false;
 				scene = GD.Load<PackedScene>(assetPath);

@@ -34,6 +34,11 @@ namespace Natiolation.Map
 
 		public override void _Ready()
 		{
+			// NatureRenderer debe existir antes de que cualquier tile sea revelado
+			// (SetVisible → AddDecorations → TrySpawnNature usa NatureRenderer.Instance)
+			var nr = new NatureRenderer { Name = "NatureRenderer" };
+			AddChild(nr);   // _EnterTree() del NatureRenderer establece Instance inmediatamente
+
 			// Si la seed viene de GameSettings (nuevo juego con semilla específica), usarla
 			if (GameSettings.Instance != null && GameSettings.Instance.MapSeed != 0)
 				Seed = GameSettings.Instance.MapSeed;

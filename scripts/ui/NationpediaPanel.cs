@@ -13,7 +13,7 @@ namespace Natiolation.UI
     /// muestra información de todas las mecánicas, unidades, edificios,
     /// tecnologías y tipos de terreno del juego.
     /// </summary>
-    public partial class NationpediaPanel : CanvasLayer
+    public partial class NationpediaPanel : Control
     {
         // ── Paleta de colores ────────────────────────────────────────────
         private static readonly Color BgMain    = new(0.04f, 0.06f, 0.10f, 0.97f);
@@ -51,7 +51,9 @@ namespace Natiolation.UI
 
         public override void _Ready()
         {
-            Layer = 50;
+            // Ocupa todo el viewport del CanvasLayer padre
+            SetAnchorsPreset(LayoutPreset.FullRect);
+            MouseFilter = MouseFilterEnum.Stop;
             Visible = false;
             BuildPanel();
             ShowCategory(0);

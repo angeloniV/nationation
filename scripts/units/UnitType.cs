@@ -1,3 +1,5 @@
+using Natiolation.Core;
+
 namespace Natiolation.Units
 {
     public enum UnitType
@@ -31,7 +33,37 @@ namespace Natiolation.Units
 
     public static class UnitTypeData
     {
-        public static UnitStats GetStats(UnitType type) => type switch
+        /// <summary>
+        /// Devuelve las estadísticas de la unidad.
+        /// Prioridad: archivo .tres en res://resources/data/units/{type}.tres
+        /// Fallback: valores hardcodeados en C#.
+        /// </summary>
+        public static UnitStats GetStats(UnitType type)
+        {
+            string path = $"res://resources/data/units/{type}.tres";
+            if (Godot.ResourceLoader.Exists(path))
+            {
+                var res = Godot.GD.Load<UnitStatsResource>(path);
+                if (res != null)
+                {
+                    return new UnitStats(
+                        res.MaxMovement,
+                        res.CombatStrength,
+                        res.RangedStrength,
+                        res.CanFoundCity,
+                        res.CanBuildImprovements,
+                        res.SightRange,
+                        res.ProductionCost,
+                        res.Symbol,
+                        res.DisplayName
+                    );
+                }
+            }
+            return GetHardcoded(type);
+        }
+
+        // ── Valores C# de referencia (fallback cuando no hay .tres) ─────
+        private static UnitStats GetHardcoded(UnitType type) => type switch
         {
             //                                  mov  cs   rs  city   build  sight  cost   sym  name
             UnitType.Settler      => new( 2,   0,   0,  true,  false, 2,   40, "S", "Colono"),

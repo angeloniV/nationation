@@ -25,6 +25,7 @@ namespace Natiolation.UI
 		private CityManager _cityManager = null!;
 		private MapManager  _map         = null!;
 		private NationpediaPanel _nationpedia = null!;
+		private TechTreePanel    _techTree    = null!;
 
 		// ── UI refs ──────────────────────────────────────────────────────
 		private Label         _turnLabel         = null!;
@@ -107,18 +108,28 @@ namespace Natiolation.UI
 			BuildToast();
 			WireSignals();
 
-			// Nationpedia — panel flotante, se abre con N o el botón 📖
-			_nationpedia = new NationpediaPanel();
-			AddChild(_nationpedia);
+			// Los paneles flotantes viven en UIOverlay (CanvasLayer layer=15),
+			// hijo directo de Main — así permanecen fijos al viewport independientemente
+			// de la cámara y de este CanvasLayer.
+			var overlay  = GetNode<UIOverlayLayer>("/root/Main/UIOverlay");
+			_nationpedia = overlay.Nationpedia;
+			_techTree    = overlay.TechTree;
 		}
 
 		public override void _UnhandledInput(InputEvent @event)
 		{
-			if (@event is InputEventKey key && key.Pressed && !key.Echo
-				&& key.Keycode == Key.N)
+			if (@event is InputEventKey key && key.Pressed && !key.Echo)
 			{
-				_nationpedia.Toggle();
-				GetViewport().SetInputAsHandled();
+				if (key.Keycode == Key.N)
+				{
+					_nationpedia.Toggle();
+					GetViewport().SetInputAsHandled();
+				}
+				else if (key.Keycode == Key.T)
+				{
+					_techTree.Toggle();
+					GetViewport().SetInputAsHandled();
+				}
 			}
 		}
 
@@ -208,6 +219,17 @@ namespace Natiolation.UI
 			_turnLabel.HorizontalAlignment = HorizontalAlignment.Right;
 			_turnLabel.CustomMinimumSize   = new Vector2(120, 0);
 			row.AddChild(_turnLabel);
+
+			// Tech Tree button
+			var btnTech = new Button { Text = "🔬" };
+			btnTech.TooltipText       = "Árbol de Tecnologías  [T]";
+			btnTech.CustomMinimumSize = new Vector2(40, 0);
+			btnTech.AddThemeStyleboxOverride("normal",  RoundedBtn(BtnBlue,  6));
+			btnTech.AddThemeStyleboxOverride("hover",   RoundedBtn(BtnBlueH, 6));
+			btnTech.AddThemeStyleboxOverride("pressed", RoundedBtn(BtnBlue,  6));
+			btnTech.AddThemeStyleboxOverride("focus",   RoundedBtn(BtnBlue,  6));
+			btnTech.Pressed += () => _techTree?.Toggle();
+			row.AddChild(btnTech);
 
 			// Nationpedia button
 			var btnNation = new Button { Text = "📖" };
@@ -527,6 +549,9 @@ namespace Natiolation.UI
 				var city = _cityManager.GetCityAt(_selCityQ, _selCityR);
 				if (city != null) RefreshCityPanel(city);
 			}
+
+			// Refrescar el Tech Tree si está abierto
+			_techTree?.Refresh();
 
 			// Abrir el tech picker automáticamente si hay tecnologías disponibles
 			if (GameManager.Instance.GetAvailableTechs().Any())

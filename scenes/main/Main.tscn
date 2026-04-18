@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3 uid="uid://main_scene"]
+[gd_scene load_steps=11 format=3 uid="uid://main_scene"]
 
 [ext_resource type="Script" path="res://scripts/core/GameManager.cs" id="1"]
 [ext_resource type="Script" path="res://scripts/core/MapCamera.cs" id="2"]
@@ -9,6 +9,7 @@
 [ext_resource type="Script" path="res://scripts/ui/MinimapPanel.cs" id="7"]
 [ext_resource type="Script" path="res://scripts/cities/CityManager.cs" id="8"]
 [ext_resource type="Script" path="res://scripts/core/SaveManager.cs" id="9"]
+[ext_resource type="Script" path="res://scripts/ui/UIOverlayLayer.cs" id="10"]
 
 [node name="Main" type="Node3D"]
 
@@ -36,6 +37,10 @@ layer = 10
 [node name="MinimapPanel" type="CanvasLayer" parent="."]
 script = ExtResource("7")
 layer = 11
+
+[node name="UIOverlay" type="CanvasLayer" parent="."]
+script = ExtResource("10")
+layer = 15
 
 [node name="SaveManager" type="Node" parent="."]
 script = ExtResource("9")
