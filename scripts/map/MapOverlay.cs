@@ -390,13 +390,13 @@ namespace Natiolation.Map
             int[] nDQ = { 0, -1, -1, 0,  1, 1 };
             int[] nDR = { 1,  1,  0, -1, -1, 0 };
 
-            float outerScale = 1f - 0.04f / HexTile3D.HexSize;
-            float innerScale = outerScale - 0.42f / HexTile3D.HexSize;
+            float outerScale = 1f - 0.02f / HexTile3D.HexSize;
+            float innerScale = outerScale - 0.62f / HexTile3D.HexSize;
 
             foreach (var hex in tiles)
             {
                 var world  = HexTile3D.AxialToWorld(hex.Q, hex.R);
-                float y    = _map.GetTileHeight(hex.Q, hex.R) + 0.08f;
+                float y    = _map.GetTileHeight(hex.Q, hex.R) + 0.14f;
                 var outer  = HexTile3D.HexRing(y, outerScale);
                 var inner  = HexTile3D.HexRing(y, innerScale);
 

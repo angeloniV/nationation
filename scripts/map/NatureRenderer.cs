@@ -10,8 +10,8 @@ namespace Natiolation.Map
     ///
     /// Fog of War por tile:
     ///   • Los assets se registran con RegisterForTile(path, q, r, transform).
+    ///   • Un mismo tile puede tener MÚLTIPLES transforms del mismo GLB (varios árboles).
     ///   • Solo se muestran los tiles que han sido explorados (SetTileExplored).
-    ///   • Esto garantiza que los árboles respeten el fog sin coste por frame.
     ///
     /// Árboles blancos fix:
     ///   • NO se aplica MaterialOverride en el MultiMeshInstance3D.
@@ -21,8 +21,8 @@ namespace Natiolation.Map
     {
         public static NatureRenderer? Instance { get; private set; }
 
-        // Transforms por GLB, indexados por tile (q, r) para soporte de fog
-        private readonly Dictionary<string, Dictionary<(int q, int r), Transform3D>> _tileTransforms = new();
+        // Transforms por GLB, indexados por tile (q, r) — LISTA para soportar varios árboles del mismo tipo por tile
+        private readonly Dictionary<string, Dictionary<(int q, int r), List<Transform3D>>> _tileTransforms = new();
 
         // Tiles que el jugador ya ha explorado (fog revelado al menos una vez)
         private readonly HashSet<(int q, int r)> _exploredTiles = new();
@@ -51,18 +51,22 @@ namespace Natiolation.Map
 
         /// <summary>
         /// Registra un asset de naturaleza asociado al tile (q, r).
+        /// Pueden registrarse múltiples transforms del mismo GLB en el mismo tile.
         /// El asset NO se muestra hasta que SetTileExplored(q, r) sea llamado.
-        /// Llamado por HexTile3D.TrySpawnNature al revelarse un tile por primera vez.
         /// </summary>
         public void RegisterForTile(string glbPath, int q, int r, Transform3D worldTransform)
         {
             if (!_tileTransforms.TryGetValue(glbPath, out var dict))
             {
-                dict = new Dictionary<(int, int), Transform3D>();
+                dict = new Dictionary<(int, int), List<Transform3D>>();
                 _tileTransforms[glbPath] = dict;
             }
-            // Un tile puede tener un único transform por GLB (el más reciente gana)
-            dict[(q, r)] = worldTransform;
+            if (!dict.TryGetValue((q, r), out var list))
+            {
+                list = new List<Transform3D>();
+                dict[(q, r)] = list;
+            }
+            list.Add(worldTransform);
             // Si el tile ya fue explorado antes de registrar (ej. reload), mostrar inmediatamente
             if (_exploredTiles.Contains((q, r)))
                 RebuildMultiMesh(glbPath);
@@ -92,11 +96,14 @@ namespace Natiolation.Map
             if (mesh == null) return;
 
             // Filtrar: solo los tiles explorados tienen sus assets visibles
-            var visibleTransforms = _tileTransforms.TryGetValue(glbPath, out var dict)
-                ? dict.Where(kv => _exploredTiles.Contains(kv.Key))
-                      .Select(kv => kv.Value)
-                      .ToList()
-                : new List<Transform3D>();
+            // Aplanar todas las listas de transforms de tiles explorados
+            var visibleTransforms = new List<Transform3D>();
+            if (_tileTransforms.TryGetValue(glbPath, out var dict))
+            {
+                foreach (var kv in dict)
+                    if (_exploredTiles.Contains(kv.Key))
+                        visibleTransforms.AddRange(kv.Value);
+            }
 
             if (!_meshInstances.TryGetValue(glbPath, out var mmi))
             {

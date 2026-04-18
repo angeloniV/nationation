@@ -290,12 +290,21 @@ namespace Natiolation.UI
 		private Control BuildTileInfo()
 		{
 			var col = VBox(6);
-			col.MouseFilter = Control.MouseFilterEnum.Ignore;
+			col.MouseFilter    = Control.MouseFilterEnum.Ignore;
+			col.ClipContents   = true;
 
 			col.AddChild(Header("TERRENO"));
+
 			_tileNameLabel = Lbl("—", 26, TextMain);
+			_tileNameLabel.AutowrapMode          = TextServer.AutowrapMode.Off;
+			_tileNameLabel.ClipText              = true;
+			_tileNameLabel.SizeFlagsHorizontal   = Control.SizeFlags.Fill;
 			col.AddChild(_tileNameLabel);
+
 			_tileYieldsLabel = Lbl("", 19, TextDim);
+			_tileYieldsLabel.AutowrapMode        = TextServer.AutowrapMode.Off;
+			_tileYieldsLabel.ClipText            = true;
+			_tileYieldsLabel.SizeFlagsHorizontal = Control.SizeFlags.Fill;
 			col.AddChild(_tileYieldsLabel);
 
 			return col;
@@ -427,7 +436,7 @@ namespace Natiolation.UI
 				// Icono + nombre
 				string icon = isChamp ? "⚔" : "•";
 				var nameLabel = Lbl($"{icon}  {stats.DisplayName}", 17,
-				                    isChamp ? Gold : TextMain);
+									isChamp ? Gold : TextMain);
 				nameLabel.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
 				row.AddChild(nameLabel);
 

@@ -596,22 +596,30 @@ namespace Natiolation.Units
                 int surfaces = mi.Mesh.GetSurfaceCount();
                 for (int s = 0; s < surfaces; s++)
                 {
-                    // Obtener el material base (desde override o desde el mesh)
-                    var mat = mi.GetSurfaceOverrideMaterial(s)
-                              ?? mi.Mesh.SurfaceGetMaterial(s) as StandardMaterial3D;
-                    if (mat is StandardMaterial3D std)
+                    // Obtener el material sin el bug de precedencia del cast:
+                    // GetSurfaceOverrideMaterial y SurfaceGetMaterial devuelven Material (base class)
+                    var rawMat = mi.GetSurfaceOverrideMaterial(s)
+                                 ?? mi.Mesh.SurfaceGetMaterial(s);
+
+                    if (rawMat is StandardMaterial3D std)
                     {
                         var tinted = (StandardMaterial3D)std.Duplicate();
                         tinted.AlbedoColor = std.AlbedoColor.Lerp(CivColor, 0.30f);
+                        // Preservar VertexColorUseAsAlbedo original (modelos Kenney usan vertex colors)
                         mi.SetSurfaceOverrideMaterial(s, tinted);
                     }
-                    else if (mat == null)
+                    else
                     {
-                        // Sin material original — crear uno nuevo con el color civ
+                        // Material null, ORM u otro tipo — crear StandardMaterial3D tintado
+                        // Intentar preservar el color base si hay albedo en el material original
+                        Color baseColor = rawMat is BaseMaterial3D bm
+                            ? bm.Get("albedo_color").As<Color>()
+                            : Colors.White;
                         var newMat = new StandardMaterial3D
                         {
-                            AlbedoColor = CivColor.Lightened(0.25f),
-                            Roughness   = 0.65f,
+                            AlbedoColor = baseColor.Lerp(CivColor, 0.30f),
+                            Roughness   = 0.70f,
+                            Metallic    = 0.05f,
                         };
                         mi.SetSurfaceOverrideMaterial(s, newMat);
                     }

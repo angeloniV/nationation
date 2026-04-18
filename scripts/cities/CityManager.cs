@@ -164,6 +164,16 @@ namespace Natiolation.Cities
                     yield return (c.Q, c.R, c.SightRange);
         }
 
+        /// <summary>
+        /// Actualiza la visibilidad de las ciudades enemigas según el fog of war.
+        /// Ciudades del jugador (civ 0) siempre visibles; ciudades enemigas solo si el tile es visible.
+        /// </summary>
+        public void RefreshFogVisibility(MapManager map)
+        {
+            foreach (var city in _cities)
+                city.Visible = city.CivIndex == 0 || (map.GetTile(city.Q, city.R)?.TileVisible ?? false);
+        }
+
         /// <summary>Suma del oro por turno de todas las ciudades de una civilización.</summary>
         public int GetTotalGoldPerTurn(int civIndex)
         {

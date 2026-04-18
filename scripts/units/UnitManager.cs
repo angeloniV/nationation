@@ -499,6 +499,16 @@ namespace Natiolation.Units
                 observers.Add(obs);
 
             _map.RefreshVisibility(observers);
+
+            // Ocultar unidades y ejércitos enemigos que estén en la niebla
+            foreach (var unit in _units)
+                unit.Visible = unit.CivIndex == 0 || (_map.GetTile(unit.Q, unit.R)?.TileVisible ?? false);
+
+            foreach (var army in _armies)
+                army.Visible = army.CivIndex == 0 || (_map.GetTile(army.Q, army.R)?.TileVisible ?? false);
+
+            // Ocultar ciudades enemigas que estén en la niebla
+            _cityManager.RefreshFogVisibility(_map);
         }
 
         // ================================================================

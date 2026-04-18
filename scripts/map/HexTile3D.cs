@@ -374,7 +374,7 @@ namespace Natiolation.Map
 
 		private void SpawnTrees(float h)
 		{
-			// Mezcla de coníferas y árboles de hoja caduca
+			// Mezcla de coníferas y árboles de hoja caduca — escala AAA
 			var trunkBrown  = SolidMat(new Color(0.25f, 0.13f, 0.04f), roughness: 0.90f);
 			var trunkGray   = SolidMat(new Color(0.38f, 0.30f, 0.22f), roughness: 0.88f);
 			var darkGreen   = SolidMat(new Color(0.04f, 0.26f, 0.06f), roughness: 0.85f);
@@ -383,17 +383,18 @@ namespace Natiolation.Map
 			var leafGold    = SolidMat(new Color(0.20f, 0.48f, 0.14f), roughness: 0.80f);
 			var leafLit     = SolidMat(new Color(0.26f, 0.62f, 0.18f), roughness: 0.78f);
 
-			// 7 árboles con posiciones semi-aleatórias (pero reproducibles con el Q,R del tile)
+			// 7 árboles con posiciones semi-aleatorias reproducibles por tile
+			// Las posiciones se distribuyen cubriendo el tile (radio ~3 unidades)
 			int seed = Q * 73856093 ^ R * 19349663;
 			(Vector3 p, float s, bool conifer)[] trees =
 			{
-				(new(-1.6f + (seed&3)*0.2f,  h, -0.8f + ((seed>>2)&3)*0.2f), 1.00f, true ),
-				(new( 1.4f - (seed&1)*0.3f,  h,  0.6f - ((seed>>4)&1)*0.3f), 0.86f, false),
-				(new( 0.1f + (seed&2)*0.2f,  h, -2.0f + ((seed>>6)&2)*0.2f), 1.15f, true ),
-				(new(-0.8f,                  h,  1.6f),                        0.78f, false),
-				(new( 2.0f - (seed&3)*0.1f,  h, -1.2f),                       0.92f, true ),
-				(new(-2.1f,                  h,  0.3f),                        0.70f, false),
-				(new( 0.6f,                  h,  1.0f),                        1.05f, true ),
+				(new(-1.8f + (seed&3)*0.3f,   h,  -1.0f + ((seed>>2)&3)*0.3f), 1.00f, true ),
+				(new( 1.6f - (seed&1)*0.4f,   h,   0.7f - ((seed>>4)&1)*0.4f), 0.90f, false),
+				(new( 0.2f + (seed&2)*0.3f,   h,  -2.2f + ((seed>>6)&2)*0.3f), 1.15f, true ),
+				(new(-1.0f + ((seed>>8)&1)*0.3f, h, 1.9f - ((seed>>9)&1)*0.3f), 0.82f, false),
+				(new( 2.1f - (seed&3)*0.15f,  h,  -1.4f + ((seed>>3)&2)*0.2f), 0.95f, true ),
+				(new(-2.3f + ((seed>>5)&1)*0.4f, h, 0.4f + ((seed>>7)&2)*0.2f), 0.75f, false),
+				(new( 0.7f + ((seed>>1)&2)*0.2f, h, 1.2f - ((seed>>4)&2)*0.2f), 1.08f, true ),
 			};
 
 			// Árboles de la Nature Kit de Kenney (CC0)
@@ -416,9 +417,11 @@ namespace Natiolation.Map
 				// Intentar cargar GLB de Kenney; fallback a malla procedural
 				string[] glbList = conifer ? coniferGlbs : deciduousGlbs;
 				string glbPath   = glbList[tIdx % glbList.Length];
-				float glbSeed    = (Q * 17 + R * 31 + tIdx) % 360;
+				// Rotación Y aleatoria para variedad visual (0–360°)
+				float rotY = (Q * 17 + R * 31 + tIdx * 47 + (seed >> (tIdx & 7))) % 360;
 
-				if (!TrySpawnNature(glbPath, g, Vector3.Zero, s * 0.48f, glbSeed))
+				// Escala 1.8x — árboles visibles y densos a distancia de cámara
+				if (!TrySpawnNature(glbPath, g, Vector3.Zero, s * 1.8f, rotY))
 				{
 					var trunkMat = conifer ? trunkBrown : trunkGray;
 					if (conifer)
