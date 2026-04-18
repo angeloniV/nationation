@@ -160,6 +160,10 @@ namespace Natiolation.Map
 			};
 			AddChild(mi);
 
+			// Forzar compilación del shader antes del primer frame visible
+			// para eliminar el stutter en la primera renderización.
+			CallDeferred(MethodName.WarmupShader);
+
 			GD.Print($"[TerrainRenderer] Malla: {cols}×{rows} vértices ({(cols-1)*(rows-1)*2} triángulos)");
 		}
 
@@ -209,6 +213,17 @@ namespace Natiolation.Map
 		// ================================================================
 		//  API PÚBLICA
 		// ================================================================
+
+		/// <summary>
+		/// Fuerza un draw call inmediato para compilar el shader del terreno antes
+		/// de que el jugador vea la primera escena, eliminando el stutter.
+		/// Llamado via CallDeferred justo después de construir la malla.
+		/// </summary>
+		private void WarmupShader()
+		{
+			RenderingServer.ForceDraw(false, 0.001);
+			GD.Print("[TerrainRenderer] Shader precalentado — stutter de primera renderización eliminado.");
+		}
 
 		/// <summary>
 		/// Actualiza el fog of war de un tile.

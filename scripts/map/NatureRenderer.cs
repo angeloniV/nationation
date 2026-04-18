@@ -1,111 +1,124 @@
 using Godot;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace Natiolation.Map
 {
     /// <summary>
     /// Renderiza toda la vegetación y decoración estática del mapa usando
-    /// MultiMeshInstance3D en lugar de nodos individuales.
+    /// MultiMeshInstance3D — un draw call por GLB o por tipo de mesh primitivo.
     ///
-    /// Fog of War por tile:
-    ///   • Los assets se registran con RegisterForTile(path, q, r, transform).
-    ///   • Un mismo tile puede tener MÚLTIPLES transforms del mismo GLB (varios árboles).
-    ///   • Solo se muestran los tiles que han sido explorados (SetTileExplored).
+    /// Dos canales de registro:
+    ///   • RegisterForTile(glbPath, q, r, t)  — assets GLB (árboles, rocas Kenney)
+    ///   • RegisterMeshForTile(key, mesh, mat, q, r, t) — meshes procedurales compartidos
     ///
-    /// Árboles blancos fix:
-    ///   • NO se aplica MaterialOverride en el MultiMeshInstance3D.
-    ///   • El Mesh extraído del GLB retiene sus materiales de superficie originales.
+    /// Fog of War: los assets solo se muestran cuando el tile fue explorado.
+    /// Árboles blancos: NO se aplica MaterialOverride — GLB preserva sus materiales.
     /// </summary>
     public partial class NatureRenderer : Node3D
     {
         public static NatureRenderer? Instance { get; private set; }
 
-        // Transforms por GLB, indexados por tile (q, r) — LISTA para soportar varios árboles del mismo tipo por tile
+        // Transforms por clave (GLB path o key semántico), indexados por tile
+        // Lista<Transform3D> para soportar múltiples instancias del mismo asset en un tile
         private readonly Dictionary<string, Dictionary<(int q, int r), List<Transform3D>>> _tileTransforms = new();
 
-        // Tiles que el jugador ya ha explorado (fog revelado al menos una vez)
+        // Para claves de meshes procedurales: el (Mesh, Material) que usan
+        private readonly Dictionary<string, (Mesh mesh, Material mat)> _keyMeshes = new();
+
+        // Tiles explorados (fog revelado al menos una vez)
         private readonly HashSet<(int q, int r)> _exploredTiles = new();
 
-        // MultiMeshInstance3D activo por ruta de GLB
+        // MultiMeshInstance3D activo por clave
         private readonly Dictionary<string, MultiMeshInstance3D> _meshInstances = new();
 
-        // Caché de meshes extraídos de los GLBs
-        private static readonly Dictionary<string, Mesh?> _meshCache = new();
+        // Caché de Mesh extraídos de GLBs
+        private static readonly Dictionary<string, Mesh?> _glbMeshCache = new();
 
         // ── Ciclo de vida ────────────────────────────────────────────────
 
-        public override void _EnterTree()
-        {
-            Instance = this;
-        }
-
-        public override void _ExitTree()
-        {
-            if (Instance == this) Instance = null;
-        }
+        public override void _EnterTree() => Instance = this;
+        public override void _ExitTree()  { if (Instance == this) Instance = null; }
 
         // ================================================================
-        //  API PÚBLICA
+        //  API PÚBLICA — GLB
         // ================================================================
 
         /// <summary>
-        /// Registra un asset de naturaleza asociado al tile (q, r).
-        /// Pueden registrarse múltiples transforms del mismo GLB en el mismo tile.
-        /// El asset NO se muestra hasta que SetTileExplored(q, r) sea llamado.
+        /// Registra un asset GLB asociado al tile (q, r).
+        /// Soporta varios transforms del mismo GLB en el mismo tile (varios árboles).
         /// </summary>
         public void RegisterForTile(string glbPath, int q, int r, Transform3D worldTransform)
         {
-            if (!_tileTransforms.TryGetValue(glbPath, out var dict))
-            {
-                dict = new Dictionary<(int, int), List<Transform3D>>();
-                _tileTransforms[glbPath] = dict;
-            }
-            if (!dict.TryGetValue((q, r), out var list))
-            {
-                list = new List<Transform3D>();
-                dict[(q, r)] = list;
-            }
-            list.Add(worldTransform);
-            // Si el tile ya fue explorado antes de registrar (ej. reload), mostrar inmediatamente
+            GetOrCreateList(glbPath, q, r).Add(worldTransform);
             if (_exploredTiles.Contains((q, r)))
                 RebuildMultiMesh(glbPath);
         }
 
+        // ================================================================
+        //  API PÚBLICA — MESHES PROCEDURALES COMPARTIDOS
+        // ================================================================
+
+        /// <summary>
+        /// Registra un mesh procedimental compartido asociado al tile (q, r).
+        /// 'key' agrupa instancias con el mismo mesh+material en un único MultiMesh.
+        /// El transform debe incluir la escala en su Basis.
+        /// </summary>
+        public void RegisterMeshForTile(string key, Mesh sharedMesh, Material sharedMat,
+                                         int q, int r, Transform3D worldTransform)
+        {
+            _keyMeshes[key] = (sharedMesh, sharedMat);
+            GetOrCreateList(key, q, r).Add(worldTransform);
+            if (_exploredTiles.Contains((q, r)))
+                RebuildMultiMesh(key);
+        }
+
+        // ================================================================
+        //  FOG OF WAR
+        // ================================================================
+
         /// <summary>
         /// Marca el tile (q, r) como explorado y reconstruye los MultiMeshes afectados.
-        /// Llamado por HexTile3D.SetVisible cuando un tile se explora por primera vez.
         /// </summary>
         public void SetTileExplored(int q, int r)
         {
-            if (!_exploredTiles.Add((q, r))) return;   // ya estaba explorado
-
-            // Reconstruir solo los GLBs que tienen datos para este tile
-            foreach (var (path, dict) in _tileTransforms)
+            if (!_exploredTiles.Add((q, r))) return;
+            foreach (var (key, dict) in _tileTransforms)
                 if (dict.ContainsKey((q, r)))
-                    RebuildMultiMesh(path);
+                    RebuildMultiMesh(key);
         }
 
         // ================================================================
         //  INTERNAL
         // ================================================================
 
-        private void RebuildMultiMesh(string glbPath)
+        private List<Transform3D> GetOrCreateList(string key, int q, int r)
         {
-            var mesh = GetOrExtractMesh(glbPath);
+            if (!_tileTransforms.TryGetValue(key, out var dict))
+            {
+                dict = new Dictionary<(int, int), List<Transform3D>>();
+                _tileTransforms[key] = dict;
+            }
+            if (!dict.TryGetValue((q, r), out var list))
+            {
+                list = new List<Transform3D>();
+                dict[(q, r)] = list;
+            }
+            return list;
+        }
+
+        private void RebuildMultiMesh(string key)
+        {
+            var mesh = ResolveMesh(key);
             if (mesh == null) return;
 
-            // Filtrar: solo los tiles explorados tienen sus assets visibles
-            // Aplanar todas las listas de transforms de tiles explorados
-            var visibleTransforms = new List<Transform3D>();
-            if (_tileTransforms.TryGetValue(glbPath, out var dict))
-            {
+            // Acumular todos los transforms de tiles explorados
+            var visible = new List<Transform3D>();
+            if (_tileTransforms.TryGetValue(key, out var dict))
                 foreach (var kv in dict)
                     if (_exploredTiles.Contains(kv.Key))
-                        visibleTransforms.AddRange(kv.Value);
-            }
+                        visible.AddRange(kv.Value);
 
-            if (!_meshInstances.TryGetValue(glbPath, out var mmi))
+            if (!_meshInstances.TryGetValue(key, out var mmi))
             {
                 var mm = new MultiMesh
                 {
@@ -113,45 +126,49 @@ namespace Natiolation.Map
                     Mesh            = mesh,
                 };
                 mmi = new MultiMeshInstance3D { Multimesh = mm };
-                // Sin MaterialOverride → los materiales del GLB se usan directamente.
-                // Esto preserva colores, texturas y roughness originales del asset.
+
+                // Para meshes procedurales: asignar el material compartido
+                if (_keyMeshes.TryGetValue(key, out var km) && km.mat != null)
+                    mmi.MaterialOverride = km.mat;
+                // Para GLBs: sin MaterialOverride → preserva materiales de superficie
+
                 AddChild(mmi);
-                _meshInstances[glbPath] = mmi;
+                _meshInstances[key] = mmi;
             }
 
-            var multiMesh = mmi.Multimesh;
-            multiMesh.InstanceCount = visibleTransforms.Count;
-            for (int i = 0; i < visibleTransforms.Count; i++)
-                multiMesh.SetInstanceTransform(i, visibleTransforms[i]);
+            mmi.Multimesh.InstanceCount = visible.Count;
+            for (int i = 0; i < visible.Count; i++)
+                mmi.Multimesh.SetInstanceTransform(i, visible[i]);
         }
 
         /// <summary>
-        /// Extrae el primer Mesh encontrado dentro del GLB (cacheado).
-        /// Libera el nodo temporal pero retiene el Mesh resource (con sus materiales).
+        /// Devuelve el Mesh para una clave: primero busca en _keyMeshes (procedural),
+        /// luego intenta extraerlo del GLB.
         /// </summary>
-        private static Mesh? GetOrExtractMesh(string glbPath)
+        private Mesh? ResolveMesh(string key)
         {
-            if (_meshCache.TryGetValue(glbPath, out var cached)) return cached;
+            if (_keyMeshes.TryGetValue(key, out var km)) return km.mesh;
+            return GetOrExtractGlbMesh(key);
+        }
+
+        private static Mesh? GetOrExtractGlbMesh(string glbPath)
+        {
+            if (_glbMeshCache.TryGetValue(glbPath, out var cached)) return cached;
 
             if (!ResourceLoader.Exists(glbPath))
             {
-                _meshCache[glbPath] = null;
+                _glbMeshCache[glbPath] = null;
                 return null;
             }
-
             var scene = GD.Load<PackedScene>(glbPath);
-            if (scene == null)
-            {
-                _meshCache[glbPath] = null;
-                return null;
-            }
+            if (scene == null) { _glbMeshCache[glbPath] = null; return null; }
 
             var inst = scene.Instantiate();
             var mi   = FindFirstMeshInstance(inst);
             var mesh = mi?.Mesh;
-            inst.Free();   // liberar nodo; el Mesh resource sigue vivo (referenciado por caché)
+            inst.Free();
 
-            _meshCache[glbPath] = mesh;
+            _glbMeshCache[glbPath] = mesh;
             return mesh;
         }
 
