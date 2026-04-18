@@ -541,9 +541,22 @@ namespace Natiolation.Cities
             // Cuerpo
             AddMI(new BoxMesh { Size = new Vector3(thW, thH, thW) }, stone, V(0, base_ + thH * 0.5f));
 
-            // Techo (pirámide 4 lados)
-            AddMI(new CylinderMesh { TopRadius = 0f, BottomRadius = rfR,
-                      Height = rfH, RadialSegments = 4 }, roofMat, V(0, base_ + thH + rfH * 0.5f));
+            // ── Techo del ayuntamiento — Kenney GLB primero ──────────────
+            float roofTopY = base_ + thH;
+            string thRoofGlb = stage >= 2
+                ? "res://assets/buildings/roof-high-point.glb"
+                : stage == 1
+                    ? "res://assets/buildings/roof-high.glb"
+                    : "res://assets/buildings/roof-point.glb";
+            float thRoofScale = stage == 0 ? thW * 0.68f
+                              : stage == 1 ? thW * 0.62f
+                              :              thW * 0.58f;
+            if (!TrySpawnGlb(thRoofGlb, V(0, roofTopY, 0), thRoofScale))
+            {
+                // Fallback: pirámide 4 lados
+                AddMI(new CylinderMesh { TopRadius = 0f, BottomRadius = rfR,
+                          Height = rfH, RadialSegments = 4 }, roofMat, V(0, roofTopY + rfH * 0.5f));
+            }
 
             // Torres laterales (progresivas)
             if (stage >= 1)
@@ -552,21 +565,30 @@ namespace Natiolation.Cities
                 float tH = stage >= 2 ? 1.78f : 1.28f;
                 float tX = thW * 0.5f + tR * 1.2f;
 
-                // Torre izquierda (desde stage 1) — cuadrada
+                // Torre izquierda — cuerpo cuadrado + tejado GLB
                 AddMI(new BoxMesh { Size = new Vector3(tR * 2.1f, tH, tR * 2.1f) },
                       stoneD, V(-tX, base_ + tH * 0.5f));
-                AddMI(new CylinderMesh { TopRadius = 0f, BottomRadius = tR + 0.16f,
-                          Height = (tR + 0.14f) * 1.2f, RadialSegments = 4 },
-                      roofMat, V(-tX, base_ + tH + (tR + 0.14f) * 0.6f));
+                float towerRoofGlb_scale = tR * 1.8f;
+                if (!TrySpawnGlb("res://assets/buildings/roof-point.glb",
+                                 V(-tX, base_ + tH, 0), towerRoofGlb_scale))
+                {
+                    AddMI(new CylinderMesh { TopRadius = 0f, BottomRadius = tR + 0.16f,
+                              Height = (tR + 0.14f) * 1.2f, RadialSegments = 4 },
+                          roofMat, V(-tX, base_ + tH + (tR + 0.14f) * 0.6f));
+                }
 
                 if (stage >= 2)
                 {
-                    // Torre derecha (desde stage 2) — cuadrada
+                    // Torre derecha
                     AddMI(new BoxMesh { Size = new Vector3(tR * 2.1f, tH, tR * 2.1f) },
                           stoneD, V(+tX, base_ + tH * 0.5f));
-                    AddMI(new CylinderMesh { TopRadius = 0f, BottomRadius = tR + 0.16f,
-                              Height = (tR + 0.14f) * 1.2f, RadialSegments = 4 },
-                          roofMat, V(+tX, base_ + tH + (tR + 0.14f) * 0.6f));
+                    if (!TrySpawnGlb("res://assets/buildings/roof-point.glb",
+                                     V(+tX, base_ + tH, 0), towerRoofGlb_scale))
+                    {
+                        AddMI(new CylinderMesh { TopRadius = 0f, BottomRadius = tR + 0.16f,
+                                  Height = (tR + 0.14f) * 1.2f, RadialSegments = 4 },
+                              roofMat, V(+tX, base_ + tH + (tR + 0.14f) * 0.6f));
+                    }
                 }
             }
 
@@ -588,55 +610,57 @@ namespace Natiolation.Cities
                                         StandardMaterial3D roofB,   StandardMaterial3D dark,
                                         StandardMaterial3D wood)
         {
-            // Hasta 5 casas con diferentes estilos
-            (float x, float z, float s, StandardMaterial3D wall, StandardMaterial3D roof, int style)[] defs =
+            // Hasta 5 casas — posición, escala, material de pared, tipo de tejado GLB, rotación
+            (float x, float z, float s, StandardMaterial3D wall, string roofGlb, StandardMaterial3D roofFallback, int style)[] defs =
             {
-                (-1.68f,  1.40f, 0.92f, plaster,  roofG, 0),   // casa grande con tejado a 4 aguas
-                ( 1.72f,  1.30f, 0.84f, stone,    roofR, 1),   // casa de piedra con chimenea
-                (-1.70f, -1.36f, 0.88f, plasterW, roofR, 0),
-                ( 1.65f, -1.25f, 0.78f, stoneL,   roofB, 2),   // casa pequeña con tejado azul
-                ( 0.20f,  1.95f, 0.70f, plaster,  roofG, 1),   // quinta casa (metrópolis)
+                (-1.68f,  1.40f, 0.92f, plaster,  "res://assets/buildings/roof-gable.glb",     roofG, 0),
+                ( 1.72f,  1.30f, 0.84f, stone,    "res://assets/buildings/roof.glb",            roofR, 1),
+                (-1.70f, -1.36f, 0.88f, plasterW, "res://assets/buildings/roof-gable.glb",     roofR, 0),
+                ( 1.65f, -1.25f, 0.78f, stoneL,   "res://assets/buildings/roof-high.glb",      roofB, 2),
+                ( 0.20f,  1.95f, 0.70f, plaster,  "res://assets/buildings/roof-point.glb",     roofG, 1),
             };
 
             for (int i = 0; i < count; i++)
             {
-                var (x, z, s, wall, roof, style) = defs[i];
+                var (x, z, s, wall, roofGlb, roofFallback, style) = defs[i];
                 float hw = 0.90f * s, hh = 1.06f * s, hd = 0.90f * s;
 
-                // Paredes
+                // ── Paredes (BoxMesh procedural) ─────────────────────────
                 AddMI(new BoxMesh { Size = new Vector3(hw, hh, hd) }, wall, V(x, base_ + hh * 0.5f, z));
 
-                // Tejado según estilo
-                if (style == 0)
-                {
-                    // Pirámide 4 lados
-                    AddMI(new CylinderMesh { TopRadius = 0f, BottomRadius = hw * 0.88f,
-                              Height = 0.64f * s, RadialSegments = 4 },
-                          roof, V(x, base_ + hh + 0.32f * s, z));
-                }
-                else if (style == 1)
-                {
-                    // Tejado a dos aguas (2 prismas triangulares)
-                    AddMI(new BoxMesh { Size = new Vector3(hw * 1.05f, 0.50f * s, hd * 0.38f) },
-                          roof, V(x, base_ + hh + 0.25f * s, z));
-                    // Chimenea
-                    AddMI(new CylinderMesh { TopRadius = 0.07f * s, BottomRadius = 0.08f * s,
-                              Height = 0.28f * s, RadialSegments = 5 },
-                          dark, V(x + hw * 0.28f, base_ + hh + 0.42f * s, z - hd * 0.10f));
-                }
-                else
-                {
-                    // Techo plano con ático
-                    AddMI(new BoxMesh { Size = new Vector3(hw * 1.04f, 0.10f, hd * 1.04f) },
-                          roof, V(x, base_ + hh + 0.05f, z));
-                    AddMI(new BoxMesh { Size = new Vector3(hw * 0.50f, 0.36f * s, hd * 0.50f) },
-                          wall, V(x + hw * 0.20f, base_ + hh + 0.18f * s, z));
-                }
-
-                // Puerta (rectángulo oscuro en la fachada)
+                // Puerta
                 float doorFace = z > 0 ? z - hd * 0.5f : z + hd * 0.5f;
                 AddMI(new BoxMesh { Size = new Vector3(0.22f * s, 0.36f * s, 0.04f) },
                       dark, V(x, base_ + hh * 0.20f, doorFace));
+
+                // ── Tejado — Kenney GLB primero, fallback procedural ─────
+                float roofY   = base_ + hh;
+                float roofRot = (z > 0) ? 0f : 180f;
+                if (!TrySpawnGlb(roofGlb, V(x, roofY, z), s * 0.52f, roofRot))
+                {
+                    // Fallback procedural según estilo
+                    if (style == 0)
+                    {
+                        AddMI(new CylinderMesh { TopRadius = 0f, BottomRadius = hw * 0.88f,
+                                  Height = 0.64f * s, RadialSegments = 4 },
+                              roofFallback, V(x, roofY + 0.32f * s, z));
+                    }
+                    else if (style == 1)
+                    {
+                        AddMI(new BoxMesh { Size = new Vector3(hw * 1.05f, 0.50f * s, hd * 0.38f) },
+                              roofFallback, V(x, roofY + 0.25f * s, z));
+                        AddMI(new CylinderMesh { TopRadius = 0.07f * s, BottomRadius = 0.08f * s,
+                                  Height = 0.28f * s, RadialSegments = 5 },
+                              dark, V(x + hw * 0.28f, roofY + 0.42f * s, z - hd * 0.10f));
+                    }
+                    else
+                    {
+                        AddMI(new BoxMesh { Size = new Vector3(hw * 1.04f, 0.10f, hd * 1.04f) },
+                              roofFallback, V(x, roofY + 0.05f, z));
+                        AddMI(new BoxMesh { Size = new Vector3(hw * 0.50f, 0.36f * s, hd * 0.50f) },
+                              wall, V(x + hw * 0.20f, roofY + 0.18f * s, z));
+                    }
+                }
             }
         }
 
@@ -717,18 +741,29 @@ namespace Natiolation.Cities
                                       StandardMaterial3D civ, StandardMaterial3D civLit,
                                       StandardMaterial3D metal)
         {
-            float poleH = stage == 0 ? 1.40f : stage == 1 ? 1.65f : 2.00f;
-            float flagW = stage == 0 ? 0.80f : stage == 1 ? 0.92f : 1.05f;
-            float flagH = stage == 0 ? 0.42f : stage == 1 ? 0.48f : 0.56f;
+            float poleH      = stage == 0 ? 1.40f : stage == 1 ? 1.65f : 2.00f;
+            float bannerScale = stage == 0 ? 0.80f : stage == 1 ? 0.92f : 1.05f;
 
-            AddMI(new CylinderMesh { TopRadius = 0.075f, BottomRadius = 0.075f,
+            // Mástil metálico (siempre procedural — da el anclaje vertical)
+            AddMI(new CylinderMesh { TopRadius = 0.070f, BottomRadius = 0.070f,
                       Height = poleH, RadialSegments = 6 }, metal, V(0, poleBot + poleH * 0.5f));
 
-            AddMI(new BoxMesh { Size = new Vector3(flagW, flagH, 0.05f) },
-                  civ, V(flagW * 0.5f, poleBot + poleH * 0.87f));
+            // Banner Kenney — verde para civ 0 (jugador), rojo para civ 1 (IA), fallback procedural
+            string bannerPath = CivIndex == 1
+                ? "res://assets/buildings/banner-red.glb"
+                : "res://assets/buildings/banner-green.glb";
+            float  bannerY    = poleBot + poleH * 0.58f;
 
-            AddMI(new BoxMesh { Size = new Vector3(flagW, flagH * 0.28f, 0.06f) },
-                  civLit, V(flagW * 0.5f, poleBot + poleH * 0.73f));
+            if (!TrySpawnGlb(bannerPath, V(0, bannerY, 0), bannerScale, 0f))
+            {
+                // Fallback: rectángulo del color cívico
+                float flagW = stage == 0 ? 0.80f : stage == 1 ? 0.92f : 1.05f;
+                float flagH = stage == 0 ? 0.42f : stage == 1 ? 0.48f : 0.56f;
+                AddMI(new BoxMesh { Size = new Vector3(flagW, flagH, 0.05f) },
+                      civ, V(flagW * 0.5f, poleBot + poleH * 0.87f));
+                AddMI(new BoxMesh { Size = new Vector3(flagW, flagH * 0.28f, 0.06f) },
+                      civLit, V(flagW * 0.5f, poleBot + poleH * 0.73f));
+            }
         }
 
         private void BuildMarket(float base_, StandardMaterial3D plaster, StandardMaterial3D roofG)
@@ -766,17 +801,26 @@ namespace Natiolation.Cities
             => new() { AlbedoColor = color, Roughness = rough, Metallic = metal };
 
         /// <summary>
+        // ── Caché de PackedScene para assets GLB de Kenney ──────────────
+        private static readonly Dictionary<string, PackedScene> _glbCache = new();
+
+        /// <summary>
         /// Intenta cargar y colocar un asset GLB de Kenney.
         /// Retorna true si tuvo éxito (no se necesita fallback procedural).
+        /// Usa caché estático y aplica VertexColorUseAsAlbedo para colores Kenney.
         /// </summary>
         private bool TrySpawnGlb(string assetPath, Vector3 pos, float scale,
                                   float rotY = 0f, Node3D? parent = null)
         {
-            if (!ResourceLoader.Exists(assetPath)) return false;
+            if (!_glbCache.TryGetValue(assetPath, out var scene))
+            {
+                if (!ResourceLoader.Exists(assetPath)) return false;
+                scene = GD.Load<PackedScene>(assetPath);
+                if (scene == null) return false;
+                _glbCache[assetPath] = scene;
+            }
             try
             {
-                var scene = GD.Load<PackedScene>(assetPath);
-                if (scene == null) return false;
                 var node = scene.Instantiate();
                 if (node is not Node3D inst3d)
                 {
@@ -784,16 +828,38 @@ namespace Natiolation.Cities
                     wrap.AddChild(node);
                     inst3d = wrap;
                 }
-                inst3d.Scale          = Vector3.One * scale;
-                inst3d.Position       = pos;
+                inst3d.Scale           = Vector3.One * scale;
+                inst3d.Position        = pos;
                 inst3d.RotationDegrees = new Vector3(0f, rotY, 0f);
                 (parent ?? this).AddChild(inst3d);
+                ApplyVertexColorFix(inst3d);
                 return true;
             }
             catch (Exception ex)
             {
                 GD.PrintErr($"[City] Error cargando GLB '{assetPath}': {ex.Message}");
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// Activa VertexColorUseAsAlbedo en todos los MeshInstance3D descendientes.
+        /// Necesario para que los modelos Kenney muestren sus colores de vértice.
+        /// </summary>
+        private static void ApplyVertexColorFix(Node3D root)
+        {
+            foreach (var child in root.FindChildren("*", "MeshInstance3D", true, false))
+            {
+                if (child is not MeshInstance3D mi) continue;
+                int surfaces = mi.Mesh?.GetSurfaceCount() ?? 0;
+                for (int s = 0; s < surfaces; s++)
+                {
+                    var mat = mi.GetActiveMaterial(s) as StandardMaterial3D;
+                    if (mat == null || mat.VertexColorUseAsAlbedo) continue;
+                    var dup = (StandardMaterial3D)mat.Duplicate();
+                    dup.VertexColorUseAsAlbedo = true;
+                    mi.SetSurfaceOverrideMaterial(s, dup);
+                }
             }
         }
     }

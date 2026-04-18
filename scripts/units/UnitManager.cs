@@ -160,6 +160,8 @@ namespace Natiolation.Units
                     TrySkipUnit();
                 if (key.Keycode == Key.T)
                     EmitSignal(SignalName.OpenTechPicker);
+                if (key.Keycode == Key.A)
+                    TryAutoExplore();
             }
         }
 
@@ -208,9 +210,12 @@ namespace Natiolation.Units
                     return;
                 }
 
+                var blocked1upt = IsMilitary(_selected.UnitType)
+                    ? GetFriendlyMilitaryHexes(_selected)
+                    : null;
                 var path = Pathfinder.FindPath(
                     _map, _selected.Q, _selected.R,
-                    hex.Q, hex.R, _selected.RemainingMovement);
+                    hex.Q, hex.R, _selected.RemainingMovement, blocked1upt);
                 if (path != null) _ = IssueMove(_selected, path);
                 return;
             }
@@ -262,9 +267,15 @@ namespace Natiolation.Units
             _selected = unit;
             unit.Select(true);
 
-            _reachable = Pathfinder.GetReachable(_map, unit.Q, unit.R, unit.RemainingMovement);
+            // 1 UPT: calcular tiles bloqueados para unidades militares
+            var blocked = IsMilitary(unit.UnitType)
+                ? GetFriendlyMilitaryHexes(unit)
+                : null;
+
+            _reachable = Pathfinder.GetReachable(_map, unit.Q, unit.R, unit.RemainingMovement, blocked);
             _overlay.SetReachable(_reachable);
             _overlay.SetHovered(_hovered);
+            _overlay.SetSelectedUnit(new HexCoord(unit.Q, unit.R));
             RefreshPathPreview();
             EmitUnitSelected(unit);
         }
@@ -280,6 +291,7 @@ namespace Natiolation.Units
             _reachable.Clear();
             _overlay.SetReachable(_reachable);
             _overlay.SetPath(new List<HexCoord>());
+            _overlay.SetSelectedUnit(null);
             EmitSignal(SignalName.UnitDeselected);
         }
 
@@ -312,9 +324,11 @@ namespace Natiolation.Units
 
             if (_selected == unit)
             {
-                _reachable = Pathfinder.GetReachable(_map, unit.Q, unit.R, unit.RemainingMovement);
+                var blocked = IsMilitary(unit.UnitType) ? GetFriendlyMilitaryHexes(unit) : null;
+                _reachable = Pathfinder.GetReachable(_map, unit.Q, unit.R, unit.RemainingMovement, blocked);
                 _overlay.SetReachable(_reachable);
                 _overlay.SetHovered(_hovered);
+                _overlay.MoveSelectedUnit(new HexCoord(unit.Q, unit.R));
                 RefreshPathPreview();
                 EmitUnitSelected(unit);
             }
@@ -420,8 +434,17 @@ namespace Natiolation.Units
         {
             foreach (var unit in _units.ToList())
             {
-                if (unit.CivIndex != 0 || !unit.HasWaypoint) continue;
+                if (unit.CivIndex != 0) continue;
                 if (!IsInstanceValid(unit)) continue;
+
+                // Auto-exploración: procesar antes que el waypoint
+                if (unit.IsAutoExploring && !unit.HasWaypoint)
+                {
+                    ProcessAutoExploreUnit(unit);
+                    continue;
+                }
+
+                if (!unit.HasWaypoint) continue;
 
                 int wq = unit.WaypointQ!.Value;
                 int wr = unit.WaypointR!.Value;
@@ -433,19 +456,25 @@ namespace Natiolation.Units
                     continue;
                 }
 
+                // 1 UPT: calcular tiles bloqueados para unidades militares
+                var waypointBlocked = IsMilitary(unit.UnitType)
+                    ? GetFriendlyMilitaryHexes(unit)
+                    : null;
+
                 // Encontrar el mejor camino con el movimiento disponible
                 var path = Pathfinder.FindPath(
-                    _map, unit.Q, unit.R, wq, wr, unit.RemainingMovement);
+                    _map, unit.Q, unit.R, wq, wr, unit.RemainingMovement, waypointBlocked);
 
                 if (path == null || path.Count < 2)
                 {
                     // No hay camino alcanzable este turno: avanzar lo máximo posible
                     // usando camino sin límite de movimiento y tomando los pasos que quepan
-                    path = Pathfinder.FindPath(_map, unit.Q, unit.R, wq, wr, float.MaxValue);
+                    path = Pathfinder.FindPath(_map, unit.Q, unit.R, wq, wr, float.MaxValue, waypointBlocked);
                     if (path == null || path.Count < 2) { unit.ClearWaypoint(); continue; }
                 }
 
                 // Mover paso a paso (instante, sin animación)
+                // 1 UPT: detener si el próximo paso está ocupado por unidad militar amiga
                 _byHex.Remove(new HexCoord(unit.Q, unit.R));
                 float movLeft = unit.RemainingMovement;
                 for (int i = 1; i < path.Count; i++)
@@ -453,6 +482,10 @@ namespace Natiolation.Units
                     var   step = path[i];
                     float cost = _map.GetEffectiveCost(step.Q, step.R);
                     if (movLeft < cost) break;
+
+                    // 1 UPT: verificar ocupación en tiempo real (otro waypoint pudo mover antes)
+                    if (waypointBlocked != null && _byHex.ContainsKey(step)) break;
+
                     movLeft -= cost;
                     unit.ConsumeMovement(cost);
                     unit.PlaceAt(step.Q, step.R, _map.GetTileHeight(step.Q, step.R));
@@ -584,6 +617,56 @@ namespace Natiolation.Units
             _selected.SkipTurn();
             EmitUnitSelected(_selected);
             CycleToNextUnit();
+        }
+
+        /// <summary>
+        /// Activa el modo auto-exploración en la unidad seleccionada (tecla A).
+        /// La unidad se moverá automáticamente hacia tiles sin explorar cada turno.
+        /// </summary>
+        private void TryAutoExplore()
+        {
+            if (_selected == null) return;
+            _selected.SetAutoExplore(true);
+            EmitUnitSelected(_selected);
+            CycleToNextUnit();
+        }
+
+        /// <summary>
+        /// Mueve un paso hacia el tile no explorado más cercano.
+        /// Si no hay tiles sin explorar, desactiva el modo y salta el turno.
+        /// </summary>
+        private void ProcessAutoExploreUnit(Unit unit)
+        {
+            var target = _map.FindNearestUnexplored(unit.Q, unit.R);
+            if (target == null)
+            {
+                unit.SetAutoExplore(false);
+                unit.SkipTurn();
+                return;
+            }
+
+            var path = Pathfinder.FindPath(_map, unit.Q, unit.R,
+                                           target.Q, target.R, float.MaxValue);
+            if (path == null || path.Count < 2)
+            {
+                unit.SkipTurn();
+                return;
+            }
+
+            _byHex.Remove(new HexCoord(unit.Q, unit.R));
+            float movLeft = unit.RemainingMovement;
+            for (int i = 1; i < path.Count; i++)
+            {
+                var   step = path[i];
+                float cost = _map.GetEffectiveCost(step.Q, step.R);
+                if (movLeft < cost) break;
+                movLeft -= cost;
+                unit.ConsumeMovement(cost);
+                unit.PlaceAt(step.Q, step.R, _map.GetTileHeight(step.Q, step.R));
+            }
+            _byHex[new HexCoord(unit.Q, unit.R)] = unit;
+
+            if (unit.CivIndex == 0) RefreshFog();
         }
 
         // ================================================================
@@ -924,6 +1007,39 @@ namespace Natiolation.Units
                 stats.DisplayName, unit.CivColor,
                 unit.RemainingMovement, unit.MaxMovement,
                 (int)unit.UnitType, unit.Q, unit.R, unit.IsFortified);
+        }
+
+        // ================================================================
+        //  1 UPT — HELPERS DE APILAMIENTO
+        // ================================================================
+
+        /// <summary>
+        /// Una unidad es militar si no puede fundar ciudades ni construir mejoras.
+        /// Settler y Worker pueden coexistir con militares; militares no pueden apilarse.
+        /// </summary>
+        private static bool IsMilitary(UnitType type)
+        {
+            var s = UnitTypeData.GetStats(type);
+            return !s.CanFoundCity && !s.CanBuildImprovements;
+        }
+
+        /// <summary>
+        /// Retorna el conjunto de hexes ocupados por unidades militares del mismo bando
+        /// que la unidad dada, excluyendo su propia posición.
+        /// Se pasa al Pathfinder como <c>blockedHexes</c> para aplicar la regla 1 UPT.
+        /// </summary>
+        private HashSet<HexCoord> GetFriendlyMilitaryHexes(Unit unit)
+        {
+            var blocked = new HashSet<HexCoord>();
+            var self    = new HexCoord(unit.Q, unit.R);
+            foreach (var kv in _byHex)
+            {
+                if (kv.Value == unit) continue;                    // excluir a sí misma
+                if (kv.Value.CivIndex != unit.CivIndex) continue;  // solo aliadas
+                if (!IsMilitary(kv.Value.UnitType)) continue;      // solo militares
+                blocked.Add(kv.Key);
+            }
+            return blocked;
         }
 
         private void EmitTileHovered(HexCoord? hex)

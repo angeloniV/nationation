@@ -5,6 +5,12 @@ namespace Natiolation.Map
 {
     /// <summary>
     /// A* sobre el grid hexagonal axial.
+    ///
+    /// Regla 1 UPT (Un-Unit-Per-Tile):
+    ///   Los parámetros opcionales <c>blockedHexes</c> indican tiles en los que
+    ///   una unidad no puede TERMINAR su movimiento (por ejemplo, porque hay una
+    ///   unidad amiga del mismo tipo). El pathfinder puede atravesar estos tiles
+    ///   como nodos intermedios, pero no los incluye en los resultados de destino.
     /// </summary>
     public static class Pathfinder
     {
@@ -13,14 +19,15 @@ namespace Natiolation.Map
 
         /// <summary>
         /// Encuentra el camino de menor costo entre dos hexes.
-        /// Devuelve null si no hay camino o el destino es infranqueable.
+        /// Devuelve null si no hay camino, el destino es infranqueable o está bloqueado por 1 UPT.
         /// El camino incluye el hex de inicio.
         /// </summary>
         public static List<HexCoord>? FindPath(
             MapManager map,
             int startQ, int startR,
             int endQ,   int endR,
-            float moveBudget = float.MaxValue)
+            float moveBudget = float.MaxValue,
+            HashSet<HexCoord>? blockedHexes = null)
         {
             if (startQ == endQ && startR == endR)
                 return new List<HexCoord> { new(startQ, startR) };
@@ -28,12 +35,15 @@ namespace Natiolation.Map
             var endType = map.GetTileType(endQ, endR);
             if (endType == null || !IsPassable(endType.Value)) return null;
 
+            // 1 UPT: no se puede llegar a un hex bloqueado por unidad amiga
+            var end = new HexCoord(endQ, endR);
+            if (blockedHexes != null && blockedHexes.Contains(end)) return null;
+
             var openSet  = new PriorityQueue<HexCoord, float>();
             var cameFrom = new Dictionary<HexCoord, HexCoord>();
             var gScore   = new Dictionary<HexCoord, float>();
 
             var start = new HexCoord(startQ, startR);
-            var end   = new HexCoord(endQ,   endR);
 
             gScore[start] = 0f;
             openSet.Enqueue(start, Heuristic(start, end));
@@ -65,8 +75,14 @@ namespace Natiolation.Map
 
         /// <summary>
         /// Calcula todos los hexes alcanzables dentro de un presupuesto de movimiento.
+        /// Los hexes en <c>blockedHexes</c> (regla 1 UPT) no se incluyen como destinos válidos
+        /// aunque el pathfinder puede traversarlos para calcular alcanzabilidad más allá.
         /// </summary>
-        public static HashSet<HexCoord> GetReachable(MapManager map, int q, int r, float budget)
+        public static HashSet<HexCoord> GetReachable(
+            MapManager map,
+            int q, int r,
+            float budget,
+            HashSet<HexCoord>? blockedHexes = null)
         {
             var reachable = new HashSet<HexCoord>();
             var frontier  = new PriorityQueue<HexCoord, float>();
@@ -90,7 +106,10 @@ namespace Natiolation.Map
                     {
                         costs[nb] = newCost;
                         frontier.Enqueue(nb, newCost);
-                        reachable.Add(nb);
+
+                        // 1 UPT: el tile es traversable pero no es destino válido
+                        if (blockedHexes == null || !blockedHexes.Contains(nb))
+                            reachable.Add(nb);
                     }
                 }
             }

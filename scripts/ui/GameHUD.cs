@@ -24,6 +24,7 @@ namespace Natiolation.UI
 		private UnitManager _unitManager = null!;
 		private CityManager _cityManager = null!;
 		private MapManager  _map         = null!;
+		private NationpediaPanel _nationpedia = null!;
 
 		// ── UI refs ──────────────────────────────────────────────────────
 		private Label         _turnLabel         = null!;
@@ -105,6 +106,20 @@ namespace Natiolation.UI
 			BuildUI();
 			BuildToast();
 			WireSignals();
+
+			// Nationpedia — panel flotante, se abre con N o el botón 📖
+			_nationpedia = new NationpediaPanel();
+			AddChild(_nationpedia);
+		}
+
+		public override void _UnhandledInput(InputEvent @event)
+		{
+			if (@event is InputEventKey key && key.Pressed && !key.Echo
+				&& key.Keycode == Key.N)
+			{
+				_nationpedia.Toggle();
+				GetViewport().SetInputAsHandled();
+			}
 		}
 
 		// ================================================================
@@ -193,6 +208,17 @@ namespace Natiolation.UI
 			_turnLabel.HorizontalAlignment = HorizontalAlignment.Right;
 			_turnLabel.CustomMinimumSize   = new Vector2(120, 0);
 			row.AddChild(_turnLabel);
+
+			// Nationpedia button
+			var btnNation = new Button { Text = "📖" };
+			btnNation.TooltipText       = "Nationpedia  [N]";
+			btnNation.CustomMinimumSize = new Vector2(40, 0);
+			btnNation.AddThemeStyleboxOverride("normal",  RoundedBtn(BtnBlue,  6));
+			btnNation.AddThemeStyleboxOverride("hover",   RoundedBtn(BtnBlueH, 6));
+			btnNation.AddThemeStyleboxOverride("pressed", RoundedBtn(BtnBlue,  6));
+			btnNation.AddThemeStyleboxOverride("focus",   RoundedBtn(BtnBlue,  6));
+			btnNation.Pressed += () => _nationpedia.Toggle();
+			row.AddChild(btnNation);
 
 			return panel;
 		}

@@ -32,6 +32,7 @@ namespace Natiolation.Units
         public bool  IsFortified       { get; private set; }
         public bool  IsVeteran         { get; private set; }
         public bool  IsReadyForTurn    { get; private set; }
+        public bool  IsAutoExploring   { get; private set; }
         private Node3D? _fortifyNode;
         private Node3D? _veteranNode;
 
@@ -107,8 +108,16 @@ namespace Natiolation.Units
         public void ResetMovement()
         {
             RemainingMovement = MaxMovement;
-            // Fortificadas y unidades con waypoint arrancan listas
-            IsReadyForTurn    = IsFortified || HasWaypoint;
+            // Fortificadas, unidades con waypoint o en auto-exploración arrancan listas
+            IsReadyForTurn    = IsFortified || HasWaypoint || IsAutoExploring;
+            UpdateLabel();
+        }
+
+        /// <summary>Activa o desactiva el modo auto-exploración (tecla A).</summary>
+        public void SetAutoExplore(bool enabled)
+        {
+            IsAutoExploring = enabled;
+            if (enabled) IsReadyForTurn = true;
             UpdateLabel();
         }
 
