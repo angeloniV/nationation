@@ -308,6 +308,16 @@ namespace Natiolation.UI
         {
             TacticalBattleManager.BattleStarted -= OnBattleStarted;
             TacticalBattleManager.BattleEnded   -= OnBattleEnded;
+
+            // Si el nodo se destruye mientras hay una batalla activa (ej. hot-reload,
+            // cambio de escena forzado), limpiar los eventos del manager de batalla.
+            if (_battle != null)
+            {
+                _battle.UnitSelected -= OnUnitSelected;
+                _battle.TurnChanged  -= OnTurnChanged;
+                _battle.UnitDamaged  -= OnUnitDamaged;
+                _battle = null;
+            }
         }
     }
 }

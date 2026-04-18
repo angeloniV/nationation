@@ -1134,7 +1134,23 @@ namespace Natiolation.Units
 
         public override void _ExitTree()
         {
+            // ── CityManager signal ───────────────────────────────────────────
+            if (_cityManager != null)
+                _cityManager.UnitProductionComplete -= OnUnitProductionComplete;
+
+            // ── GameManager event ────────────────────────────────────────────
+            if (GameManager.Instance != null)
+                GameManager.Instance.WarDeclared -= OnWarDeclared;
+
+            // ── TacticalBattleManager static event ──────────────────────────
             TacticalBattleManager.BattleEnded -= OnTacticalBattleEnded;
+
+            // ── ConfirmationDialog (hijo, pero explicitamos para claridad) ───
+            if (_mergeDialog != null)
+            {
+                _mergeDialog.Confirmed -= OnMergeConfirmed;
+                _mergeDialog.Canceled  -= OnMergeCanceled;
+            }
         }
 
         private void OnWarDeclared(int a, int b)

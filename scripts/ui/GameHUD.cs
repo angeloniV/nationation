@@ -72,6 +72,10 @@ namespace Natiolation.UI
 
 		private int _selCityQ = -1, _selCityR = -1;
 
+		// ── Delegates almacenados para poder desuscribirse (lambdas anónimas son irrecuperables) ──
+		private UnitManager.ResearchRequiredEventHandler? _onResearchRequired;
+		private UnitManager.OpenTechPickerEventHandler?   _onOpenTechPicker;
+
 		// ── Paleta ───────────────────────────────────────────────────────
 		private static readonly Color BgDark    = new(0.04f, 0.06f, 0.10f, 0.96f);
 		private static readonly Color BgSection = new(0.08f, 0.10f, 0.16f, 1.00f);
@@ -939,8 +943,11 @@ namespace Natiolation.UI
 			_unitManager.CitySelected    += OnCitySelected;
 			_unitManager.CityDeselected  += OnCityDeselected;
 			_unitManager.CombatEvent     += ShowToast;
-			_unitManager.ResearchRequired += () => SetActivePanel(4);
-			_unitManager.OpenTechPicker   += () => SetActivePanel(4);
+			// Lambdas almacenadas como campos para poder desuscribirse en _ExitTree
+			_onResearchRequired = () => SetActivePanel(4);
+			_onOpenTechPicker   = () => SetActivePanel(4);
+			_unitManager.ResearchRequired += _onResearchRequired;
+			_unitManager.OpenTechPicker   += _onOpenTechPicker;
 
 			// C# events para ejércitos (Action, no Godot signal)
 			_unitManager.ArmySelectedEvent   += OnArmySelected;
@@ -949,6 +956,44 @@ namespace Natiolation.UI
 			GameManager.Instance.TurnChanged    += OnTurnChanged;
 			GameManager.Instance.TechResearched += OnTechResearched;
 			_cityManager.CityEvent += ShowToast;
+		}
+
+		/// <summary>
+		/// Desuscribe todos los eventos externos para permitir que el GC colecte este nodo
+		/// cuando sea eliminado con QueueFree(). Sin esto, los managers (UnitManager, GameManager,
+		/// CityManager) retienen una referencia fuerte a GameHUD — memory leak garantizado.
+		/// </summary>
+		public override void _ExitTree()
+		{
+			// ── UnitManager signals ──────────────────────────────────────────
+			if (_unitManager != null)
+			{
+				_unitManager.UnitSelected    -= OnUnitSelected;
+				_unitManager.UnitDeselected  -= OnUnitDeselected;
+				_unitManager.TileHovered     -= OnTileHovered;
+				_unitManager.CitySelected    -= OnCitySelected;
+				_unitManager.CityDeselected  -= OnCityDeselected;
+				_unitManager.CombatEvent     -= ShowToast;
+				if (_onResearchRequired != null) _unitManager.ResearchRequired -= _onResearchRequired;
+				if (_onOpenTechPicker   != null) _unitManager.OpenTechPicker   -= _onOpenTechPicker;
+				_unitManager.ArmySelectedEvent   -= OnArmySelected;
+				_unitManager.ArmyDeselectedEvent -= OnArmyDeselected;
+			}
+
+			// ── GameManager events ───────────────────────────────────────────
+			if (GameManager.Instance != null)
+			{
+				GameManager.Instance.TurnChanged    -= OnTurnChanged;
+				GameManager.Instance.TechResearched -= OnTechResearched;
+			}
+
+			// ── CityManager signals ──────────────────────────────────────────
+			if (_cityManager != null)
+				_cityManager.CityEvent -= ShowToast;
+
+			// ── Army CompositionChanged (si uno está seleccionado al destruirse) ─
+			if (_displayedArmy != null)
+				_displayedArmy.CompositionChanged -= OnArmyCompositionChanged;
 		}
 
 		private void OnArmySelected(Army army)
