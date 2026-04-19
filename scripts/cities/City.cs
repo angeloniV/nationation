@@ -103,6 +103,37 @@ namespace Natiolation.Cities
         }
 
         /// <summary>
+        /// Restaura el estado económico y los edificios de una ciudad cargada desde guardado.
+        /// Llamar después de Init() y antes de CalculateYields().
+        /// No serializa ningún tipo de Godot — solo lee datos POCO.
+        /// </summary>
+        public void RestoreFromSave(Core.CitySaveData data, MapManager map)
+        {
+            // ── Estado económico ─────────────────────────────────────────────
+            Population = Mathf.Max(1, data.Population);
+            FoodStored = Mathf.Max(0, data.FoodStored);
+            ProdStored = Mathf.Max(0, data.ProdStored);
+
+            // ── Edificios — añadir datos lógicos y visuales ──────────────────
+            foreach (int b in data.Buildings)
+            {
+                var bt = (BuildingType)b;
+                if (_buildings.Add(bt))          // Add returns false si ya existe
+                    AddBuildingVisual(bt);
+            }
+
+            // ── Cola de producción (sin resetear ProdStored) ─────────────────
+            BuildingUnit     = data.BuildingUnit     >= 0 ? (UnitType?)    data.BuildingUnit     : null;
+            BuildingBuilding = data.BuildingBuilding >= 0 ? (BuildingType?)data.BuildingBuilding : null;
+
+            // ── Recalcular rendimientos con edificios restaurados ─────────────
+            CalculateYields(map);
+
+            // ── Ajustar escala visual según población restaurada ──────────────
+            TryRebuildVisuals();
+        }
+
+        /// <summary>
         /// Reconstruye los visuales si la población ha cambiado de etapa (aldea → ciudad, etc.).
         /// Llamado por CityManager tras cada crecimiento de población.
         /// </summary>

@@ -953,8 +953,13 @@ namespace Natiolation.UI
 			_unitManager.ArmySelectedEvent   += OnArmySelected;
 			_unitManager.ArmyDeselectedEvent += OnArmyDeselected;
 
+			// Señales de GameManager — granulares: cada recurso tiene su propia señal
+			// para que el HUD no necesite leer el estado global en _Process ni en OnTurnChanged.
 			GameManager.Instance.TurnChanged    += OnTurnChanged;
+			GameManager.Instance.GoldChanged    += OnGoldChanged;
+			GameManager.Instance.ScienceChanged += OnScienceChanged;
 			GameManager.Instance.TechResearched += OnTechResearched;
+
 			_cityManager.CityEvent += ShowToast;
 		}
 
@@ -984,6 +989,8 @@ namespace Natiolation.UI
 			if (GameManager.Instance != null)
 			{
 				GameManager.Instance.TurnChanged    -= OnTurnChanged;
+				GameManager.Instance.GoldChanged    -= OnGoldChanged;
+				GameManager.Instance.ScienceChanged -= OnScienceChanged;
 				GameManager.Instance.TechResearched -= OnTechResearched;
 			}
 
@@ -1063,27 +1070,51 @@ namespace Natiolation.UI
 			_tileYieldsLabel.Text = parts.Count > 0 ? string.Join("    ", parts) : "Sin rendimiento";
 		}
 
+		// ── Handlers de recursos — cada uno reacciona a su propia señal ────────
+
+		/// <summary>
+		/// Solo actualiza el contador de turno y los paneles contextuales.
+		/// Los labels de gold/science reaccionan a sus propias señales (GoldChanged, ScienceChanged).
+		/// </summary>
 		private void OnTurnChanged(int turn)
 		{
 			_turnLabel.Text = $"TURNO  {turn}";
 
-			var    gm    = GameManager.Instance;
-			int    delta = gm.GoldLastDelta;
-			string sign  = delta >= 0 ? "+" : "";
-			_goldLabel.Text = $"💰  {gm.Gold}   ({sign}{delta} / t)";
-			_goldLabel.AddThemeColorOverride("font_color", delta >= 0 ? CGold : new Color(1f, 0.36f, 0.26f));
-
-			int sciPerTurn = _cityManager.GetTotalSciencePerTurn(0);
-			_scienceLabel.Text = $"🔬  {gm.ScienceStored}   (+{sciPerTurn}/t)";
-
+			// Refrescar barra de investigación (los turnos restantes dependen del turno)
 			RefreshResearchTopBar();
 			if (_researchActivePanel.Visible) RefreshResearchPanel();
 
+			// Refrescar panel de ciudad si está abierto (producción/comida avanzaron)
 			if (_selCityQ >= 0 && _cityInfoPanel.Visible)
 			{
 				var city = _cityManager.GetCityAt(_selCityQ, _selCityR);
 				if (city != null) RefreshCityPanel(city);
 			}
+		}
+
+		/// <summary>
+		/// Actualiza el label de oro. Reacciona a GameManager.GoldChanged
+		/// (emitida por ApplyGoldDelta y LoadFrom — nunca hay polling en _Process).
+		/// </summary>
+		private void OnGoldChanged(int amount, int delta)
+		{
+			string sign     = delta >= 0 ? "+" : "";
+			_goldLabel.Text = $"💰  {amount}   ({sign}{delta} / t)";
+			_goldLabel.AddThemeColorOverride("font_color", delta >= 0 ? CGold : new Color(1f, 0.36f, 0.26f));
+		}
+
+		/// <summary>
+		/// Actualiza el label de ciencia y la barra de investigación.
+		/// Reacciona a GameManager.ScienceChanged.
+		/// </summary>
+		private void OnScienceChanged(int amount, int delta)
+		{
+			int sciPerTurn     = _cityManager.GetTotalSciencePerTurn(0);
+			_scienceLabel.Text = $"🔬  {amount}   (+{sciPerTurn}/t)";
+
+			// La ciencia acumulada afecta los turnos restantes de investigación
+			RefreshResearchTopBar();
+			if (_researchActivePanel.Visible) RefreshResearchPanel();
 		}
 
 		// ================================================================

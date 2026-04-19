@@ -74,6 +74,48 @@ namespace Natiolation.Cities
         //  FUNDACIÓN
         // ================================================================
 
+        // ================================================================
+        //  CARGA DESDE GUARDADO
+        // ================================================================
+
+        /// <summary>
+        /// Restaura todas las ciudades desde datos de guardado.
+        /// Llamado por SaveManager.ApplyPendingLoad() tras todos los _Ready().
+        /// Omite validación de distancia y no consume el pool de nombres.
+        /// </summary>
+        public void LoadFromSave(Core.CitySaveData[] savedCities, MapManager map)
+        {
+            foreach (var data in savedCities)
+                LoadCity(data, map);
+            RefreshTerritory();
+        }
+
+        private void LoadCity(Core.CitySaveData data, MapManager map)
+        {
+            var t = map.GetTileType(data.Q, data.R);
+            if (t == null)
+            {
+                GD.PrintErr($"[CityManager] No se pudo restaurar ciudad '{data.Name}' en ({data.Q},{data.R}): tile nulo.");
+                return;
+            }
+
+            var civColor = new Color(data.CivR, data.CivG, data.CivB);
+            float tileH  = map.GetTileHeight(data.Q, data.R);
+
+            var city = new City();
+            AddChild(city);
+            city.Init(data.Name, data.Q, data.R, data.CivIndex, civColor, tileH);
+            city.RestoreFromSave(data, map);
+            _cities.Add(city);
+
+            GD.Print($"[CityManager] Ciudad '{data.Name}' restaurada en ({data.Q},{data.R}) " +
+                     $"pop={data.Population}  {data.Buildings.Length} edificios.");
+        }
+
+        // ================================================================
+        //  FUNDACIÓN
+        // ================================================================
+
         public bool TryFoundCity(Unit settler)
         {
             int q = settler.Q, r = settler.R;

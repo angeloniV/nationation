@@ -471,15 +471,15 @@ namespace Natiolation.Map
 					for (int i = 0; i < 3; i++)
 					{
 						BatchMesh(i == 1 ? K_GRASS_LIT : K_GRASS_DARK,
-						          _unitBox, i == 1 ? _mGrassLit! : _mGrassDark!,
-						          new Vector3(x, h + 0.16f * s, z),
-						          new Vector3(0.08f * s, 0.32f * s, 0.04f),
-						          -12f + i * 8f, i * 60f);
+								  _unitBox, i == 1 ? _mGrassLit! : _mGrassDark!,
+								  new Vector3(x, h + 0.16f * s, z),
+								  new Vector3(0.08f * s, 0.32f * s, 0.04f),
+								  -12f + i * 8f, i * 60f);
 					}
 					if ((x * 7 + z * 11) % 3 == 0)
 						BatchMesh(K_GRASS_FLOWER, _unitSphere, _mGrassFlower!,
-						          new Vector3(x, h + 0.38f * s, z),
-						          new Vector3(0.20f * s, 0.20f * s, 0.20f * s));
+								  new Vector3(x, h + 0.38f * s, z),
+								  new Vector3(0.20f * s, 0.20f * s, 0.20f * s));
 				}
 				return;
 			}
@@ -523,10 +523,10 @@ namespace Natiolation.Map
 				{
 					bool useA = (int)(x + z) % 2 == 0;
 					BatchMesh(useA ? K_STONE_A : K_STONE_B,
-					          _unitBox, useA ? _mStoneA! : _mStoneB!,
-					          new Vector3(x, h + sy * 0.5f, z),
-					          new Vector3(sx, sy, sz),
-					          0f, ry);
+							  _unitBox, useA ? _mStoneA! : _mStoneB!,
+							  new Vector3(x, h + sy * 0.5f, z),
+							  new Vector3(sx, sy, sz),
+							  0f, ry);
 				}
 				return;
 			}
@@ -608,13 +608,13 @@ namespace Natiolation.Map
 				// Parches: CylinderMesh aplanado via escala en Transform
 				foreach (var (x, z, s) in patches)
 					BatchMesh(K_SNOW_PATCH, _unitBox, _mSnow!,
-					          new Vector3(x, h + 0.05f, z),
-					          new Vector3(1.20f * s, 0.08f, 1.30f * s));
+							  new Vector3(x, h + 0.05f, z),
+							  new Vector3(1.20f * s, 0.08f, 1.30f * s));
 				// Estalactitas de hielo (conos pequeños, batch como cajas estrechas)
 				BatchMesh(K_FROST, _unitBox, _mFrost!,
-				          new Vector3(-0.4f, h + 0.22f, 0.6f), new Vector3(0.12f, 0.45f, 0.12f));
+						  new Vector3(-0.4f, h + 0.22f, 0.6f), new Vector3(0.12f, 0.45f, 0.12f));
 				BatchMesh(K_FROST, _unitBox, _mFrost!,
-				          new Vector3( 0.8f, h + 0.17f,-0.4f), new Vector3(0.10f, 0.35f, 0.10f));
+						  new Vector3( 0.8f, h + 0.17f,-0.4f), new Vector3(0.10f, 0.35f, 0.10f));
 				return;
 			}
 
@@ -709,7 +709,7 @@ namespace Natiolation.Map
 			float mainScale = 0.80f + (seed & 3) * 0.08f;
 			float mainRot   = (seed & 7) * 45f;
 			if (!TrySpawnNatureAt("res://assets/nature/cliff_top_rock.glb",
-			                       new Vector3(0f, h, 0f), mainScale, mainRot))
+								   new Vector3(0f, h, 0f), mainScale, mainRot))
 			{
 				var gMain = new Node3D { Position = new Vector3(0f, h, 0f) };
 				gMain.AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(1.10f, 0.70f, 0.90f) }, MaterialOverride = rockMat,  RotationDegrees = new Vector3(0f, mainRot, 8f) });
@@ -720,7 +720,7 @@ namespace Natiolation.Map
 			// ── Rocas secundarias ─────────────────────────────────────────
 			float s1 = 0.44f + (seed & 3) * 0.05f;
 			if (!TrySpawnNatureAt("res://assets/nature/rock_smallA.glb",
-			                       new Vector3(-1.20f, h, 0.40f), s1, (seed & 7) * 30f))
+								   new Vector3(-1.20f, h, 0.40f), s1, (seed & 7) * 30f))
 			{
 				var g1 = new Node3D { Position = new Vector3(-1.20f, h, 0.40f) };
 				g1.AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(0.55f, 0.44f, 0.44f) }, MaterialOverride = rockMat, RotationDegrees = new Vector3(0f, (seed & 7) * 22f, 12f) });
@@ -729,7 +729,7 @@ namespace Natiolation.Map
 
 			float s2 = 0.38f + ((seed >> 2) & 3) * 0.04f;
 			if (!TrySpawnNatureAt("res://assets/nature/rock_smallB.glb",
-			                       new Vector3(1.10f, h, -0.50f), s2, ((seed >> 3) & 7) * 35f))
+								   new Vector3(1.10f, h, -0.50f), s2, ((seed >> 3) & 7) * 35f))
 			{
 				var g2 = new Node3D { Position = new Vector3(1.10f, h, -0.50f) };
 				g2.AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(0.40f, 0.32f, 0.54f) }, MaterialOverride = rock2Mat, RotationDegrees = new Vector3(5f, ((seed >> 3) & 7) * 28f, -8f) });
@@ -737,8 +737,8 @@ namespace Natiolation.Map
 			}
 
 			if (!TrySpawnNatureAt("res://assets/nature/rock_smallA.glb",
-			                       new Vector3(-0.40f, h, -1.00f),
-			                       0.28f + ((seed >> 4) & 3) * 0.03f, (seed >> 5) * 50f))
+								   new Vector3(-0.40f, h, -1.00f),
+								   0.28f + ((seed >> 4) & 3) * 0.03f, (seed >> 5) * 50f))
 			{
 				var g3 = new Node3D { Position = new Vector3(-0.40f, h, -1.00f) };
 				g3.AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(0.30f, 0.22f, 0.34f) }, MaterialOverride = rockMat, RotationDegrees = new Vector3(-4f, (seed >> 5) * 40f, 6f) });
@@ -757,7 +757,7 @@ namespace Natiolation.Map
 			{
 				if (NatureRenderer.Instance != null)
 					BatchMesh(K_GRASS_DARK, _unitBox, _mGrassDark!,
-					          pos, new Vector3(s * 0.8f, s * 0.6f, s * 0.8f));
+							  pos, new Vector3(s * 0.8f, s * 0.6f, s * 0.8f));
 				else
 					AddChild(MeshAt(new CylinderMesh { TopRadius=s*0.5f, BottomRadius=s*0.8f, Height=s*0.6f, RadialSegments=5 }, grassMat, pos));
 			}
@@ -920,8 +920,8 @@ namespace Natiolation.Map
 		/// La escala y rotación van codificadas en el Transform3D → cero overhead adicional.
 		/// </summary>
 		private void BatchMesh(string key, Mesh mesh, StandardMaterial3D mat,
-		                        Vector3 localPos, Vector3 scale3,
-		                        float rotXdeg = 0f, float rotYdeg = 0f)
+								Vector3 localPos, Vector3 scale3,
+								float rotXdeg = 0f, float rotYdeg = 0f)
 		{
 			if (NatureRenderer.Instance == null) return;
 			var rot      = Basis.FromEuler(new Vector3(Mathf.DegToRad(rotXdeg), Mathf.DegToRad(rotYdeg), 0f));

@@ -383,6 +383,31 @@ namespace Natiolation.Map
 			=> _improvements.TryGetValue((q, r), out var imp) ? imp : TileImprovement.None;
 
 		/// <summary>
+		/// Devuelve todas las mejoras del mapa para serialización.
+		/// Solo para ser usado por SaveManager.
+		/// </summary>
+		public IEnumerable<(int q, int r, TileImprovement improvement)> GetAllImprovements()
+		{
+			foreach (var kv in _improvements)
+				if (kv.Value != TileImprovement.None)
+					yield return (kv.Key.q, kv.Key.r, kv.Value);
+		}
+
+		/// <summary>
+		/// Restaura las mejoras de terreno desde datos de guardado.
+		/// Llama a SetImprovement para también reconstruir los visuales (caminos, etc.).
+		/// </summary>
+		public void RestoreImprovements(Core.ImprovementSaveData[] improvements)
+		{
+			foreach (var d in improvements)
+			{
+				var imp = (TileImprovement)d.Improvement;
+				if (imp != TileImprovement.None)
+					SetImprovement(d.Q, d.R, imp);
+			}
+		}
+
+		/// <summary>
 		/// Costo de movimiento efectivo para entrar a (q,r).
 		/// Los tiles con Camino cuestan 1/3 de movimiento (≈0.34 para que sea significativo).
 		/// </summary>
@@ -391,6 +416,20 @@ namespace Natiolation.Map
 			if (GetImprovement(q, r) == TileImprovement.Road) return 0.25f;
 			var t = GetTileType(q, r);
 			return t.HasValue ? t.Value.MovementCost() : 1f;
+		}
+
+		/// <summary>
+		/// Captura los datos de mapa necesarios para pathfinding en un objeto inmutable.
+		/// Debe llamarse desde el hilo principal; el resultado puede pasarse a Task.Run.
+		/// </summary>
+		public MapSnapshot TakeSnapshot()
+		{
+			var costs = new float[MapWidth, MapHeight];
+			for (int q = 0; q < MapWidth; q++)
+				for (int r = 0; r < MapHeight; r++)
+					costs[q, r] = GetEffectiveCost(q, r);
+			// _tileTypes no muta tras generación → compartir referencia es seguro
+			return new MapSnapshot(MapWidth, MapHeight, _tileTypes, costs);
 		}
 
 		public void SetImprovement(int q, int r, TileImprovement improvement)

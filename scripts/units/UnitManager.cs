@@ -52,6 +52,9 @@ namespace Natiolation.Units
         private HexCoord?         _hovered;
         private HashSet<HexCoord> _reachable = new();
 
+        // Evita que clics rápidos lancen múltiples pathfindings en paralelo
+        private bool _pathfindingInProgress;
+
         // ── Estado de fusión / despliegue (Fase 4) ───────────────────────────
         private ConfirmationDialog _mergeDialog     = null!;
         private Unit?  _pendingMergeA    = null;   // primera unidad a fusionar
@@ -87,7 +90,10 @@ namespace Natiolation.Units
             _mergeDialog.Confirmed += OnMergeConfirmed;
             _mergeDialog.Canceled  += OnMergeCanceled;
 
-            SpawnStartingUnits();
+            // Si hay datos de guardado pendientes, SaveManager.ApplyPendingLoad()
+            // llamará a LoadFromSave() en el siguiente frame (vía CallDeferred).
+            if (Core.GameSettings.Instance?.PendingLoad == null)
+                SpawnStartingUnits();
         }
 
         // ================================================================
@@ -123,6 +129,47 @@ namespace Natiolation.Units
                     }
             return new HexCoord(hintQ, hintR);
         }
+
+        // ================================================================
+        //  CARGA DESDE GUARDADO
+        // ================================================================
+
+        /// <summary>
+        /// Restaura todas las unidades desde datos de guardado.
+        /// Llamado por SaveManager.ApplyPendingLoad() tras todos los _Ready().
+        /// </summary>
+        public void LoadFromSave(Core.UnitSaveData[] savedUnits)
+        {
+            foreach (var data in savedUnits)
+                SpawnFromSave(data);
+        }
+
+        private void SpawnFromSave(Core.UnitSaveData data)
+        {
+            var t = _map.GetTileType(data.Q, data.R);
+            if (t == null || !Pathfinder.IsPassable(t.Value))
+            {
+                GD.PrintErr($"[UnitManager] No se pudo restaurar unidad en ({data.Q},{data.R}): tile inválido.");
+                return;
+            }
+
+            var civColor = new Color(data.CivR, data.CivG, data.CivB);
+            var unit = new Unit
+            {
+                UnitType = (UnitType)data.UnitType,
+                CivColor  = civColor,
+                CivIndex  = data.CivIndex,
+            };
+            AddChild(unit);
+            unit.PlaceAt(data.Q, data.R, _map.GetTileHeight(data.Q, data.R));
+            unit.RestoreFromSave(data.MovesLeft, data.CurrentHP, data.IsVeteran, data.IsFortified);
+            _units.Add(unit);
+            _byHex[new HexCoord(data.Q, data.R)] = unit;
+        }
+
+        // ================================================================
+        //  SPAWN (nueva partida)
+        // ================================================================
 
         private void Spawn(UnitType type, int q, int r, Color civColor, int civIndex)
         {
@@ -206,7 +253,7 @@ namespace Natiolation.Units
         //  SELECCIÓN Y MOVIMIENTO
         // ================================================================
 
-        private void HandleLeftClick()
+        private async void HandleLeftClick()
         {
             var hex = _hovered;
             if (hex == null) return;
@@ -289,12 +336,19 @@ namespace Natiolation.Units
                     ShowJoinArmyDialog(ally, _selectedArmy);
                     return;
                 }
-                // Hex vacío → mover ejército
-                var armyPath = Pathfinder.FindPath(
-                    _map, _selectedArmy.Q, _selectedArmy.R,
-                    hex.Q, hex.R, _selectedArmy.RemainingMovement,
-                    GetArmyBlockedHexes(_selectedArmy));
-                if (armyPath != null) _ = IssueArmyMove(_selectedArmy, armyPath);
+                // Hex vacío → mover ejército (pathfinding asíncrono)
+                if (_pathfindingInProgress) return;
+                _pathfindingInProgress = true;
+                try
+                {
+                    var army = _selectedArmy;   // capturar referencia antes del await
+                    var armyPath = await Pathfinder.FindPathAsync(
+                        _map, army.Q, army.R,
+                        hex.Q, hex.R, army.RemainingMovement,
+                        GetArmyBlockedHexes(army));
+                    if (armyPath != null) await IssueArmyMove(army, armyPath);
+                }
+                finally { _pathfindingInProgress = false; }
                 return;
             }
 
@@ -331,13 +385,21 @@ namespace Natiolation.Units
                     return;
                 }
 
-                var blocked1upt = IsMilitary(_selected.UnitType)
-                    ? GetFriendlyMilitaryHexes(_selected)
-                    : null;
-                var path = Pathfinder.FindPath(
-                    _map, _selected.Q, _selected.R,
-                    hex.Q, hex.R, _selected.RemainingMovement, blocked1upt);
-                if (path != null) _ = IssueMove(_selected, path);
+                // Mover unidad (pathfinding asíncrono)
+                if (_pathfindingInProgress) return;
+                _pathfindingInProgress = true;
+                try
+                {
+                    var unit = _selected;   // capturar referencia antes del await
+                    var blocked1upt = IsMilitary(unit.UnitType)
+                        ? GetFriendlyMilitaryHexes(unit)
+                        : null;
+                    var path = await Pathfinder.FindPathAsync(
+                        _map, unit.Q, unit.R,
+                        hex.Q, hex.R, unit.RemainingMovement, blocked1upt);
+                    if (path != null) await IssueMove(unit, path);
+                }
+                finally { _pathfindingInProgress = false; }
                 return;
             }
 
@@ -484,8 +546,9 @@ namespace Natiolation.Units
 
         /// <summary>
         /// Recalcula el fog of war acumulando la visión de todas las unidades del jugador (civ 0).
+        /// Public para que SaveManager pueda llamarlo tras restaurar todas las entidades.
         /// </summary>
-        private void RefreshFog()
+        public void RefreshFog()
         {
             var observers = new List<(int q, int r, int sight)>();
 

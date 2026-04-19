@@ -19,11 +19,15 @@ namespace Natiolation.Core
         public int Gold          { get; private set; } = 50;
         public int GoldLastDelta { get; private set; } = 0;
 
+        /// <summary>Emitida cuando el oro cambia (al final de turno o al cargar partida).</summary>
+        [Signal] public delegate void GoldChangedEventHandler(int amount, int delta);
+
         /// <summary>Aplica un cambio de oro (income - upkeep) y registra el delta para el HUD.</summary>
         public void ApplyGoldDelta(int delta)
         {
             GoldLastDelta = delta;
             Gold          = Mathf.Max(0, Gold + delta);
+            EmitSignal(SignalName.GoldChanged, Gold, GoldLastDelta);
         }
 
         // ── Diplomacia ───────────────────────────────────────────────────
@@ -60,6 +64,9 @@ namespace Natiolation.Core
         public int            ScienceLastDelta { get; private set; } = 0;
         public Technology?    CurrentResearch  { get; private set; }
 
+        /// <summary>Emitida cuando la ciencia acumulada cambia.</summary>
+        [Signal] public delegate void ScienceChangedEventHandler(int amount, int delta);
+
         private readonly HashSet<Technology> _researched = new();
         public IReadOnlySet<Technology> ResearchedTechs => _researched;
 
@@ -78,6 +85,7 @@ namespace Natiolation.Core
         {
             ScienceLastDelta = amount;
             ScienceStored   += amount;
+            EmitSignal(SignalName.ScienceChanged, ScienceStored, ScienceLastDelta);
         }
 
         public void SetResearch(Technology tech)
@@ -101,6 +109,37 @@ namespace Natiolation.Core
 
         // Se populan desde Main al iniciar
         public MapManager Map { get; set; } = null!;
+
+        // ================================================================
+        //  CARGA DESDE GUARDADO
+        // ================================================================
+
+        /// <summary>
+        /// Restaura el estado global de juego desde datos de guardado.
+        /// Debe llamarse ANTES de que UnitManager y CityManager restauren sus entidades,
+        /// para que las señales de cambio de recursos estén correctamente conectadas al HUD.
+        /// </summary>
+        public void LoadFrom(GameSaveData data)
+        {
+            CurrentTurn   = data.Turn;
+            Gold          = data.Gold;
+            GoldLastDelta = 0;
+            ScienceStored  = data.Science;
+            ScienceLastDelta = 0;
+
+            _researched.Clear();
+            foreach (int t in data.ResearchedTechs)
+                _researched.Add((Technology)t);
+
+            CurrentResearch = data.CurrentResearch >= 0
+                ? (Technology?)data.CurrentResearch
+                : null;
+
+            // Notificar al HUD de los valores iniciales
+            EmitSignal(SignalName.TurnChanged,     CurrentTurn);
+            EmitSignal(SignalName.GoldChanged,     Gold,         0);
+            EmitSignal(SignalName.ScienceChanged,  ScienceStored, 0);
+        }
 
         public override void _Ready()
         {

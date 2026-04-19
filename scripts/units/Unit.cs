@@ -234,6 +234,25 @@ namespace Natiolation.Units
 
         // ── Veterano ──────────────────────────────────────────────────────
 
+        /// <summary>
+        /// Restaura el estado de combate de una unidad cargada desde un guardado.
+        /// Llamar inmediatamente después de PlaceAt(), antes del primer frame.
+        /// </summary>
+        public void RestoreFromSave(float movesLeft, int currentHP, bool isVeteran, bool isFortified)
+        {
+            // Movimiento — respetar el máximo calculado en _Ready()
+            RemainingMovement = Mathf.Clamp(movesLeft, 0f, MaxMovement);
+
+            // HP — setear directamente sin disparar evento Died (la unidad existe)
+            CurrentHP = Mathf.Clamp(currentHP, 1, MaxHP);
+            UpdateHPBar();
+
+            if (isVeteran)   MakeVeteran();
+            if (isFortified) Fortify();
+
+            UpdateLabel();
+        }
+
         /// <summary>Convierte la unidad en veterana (bonus de combate + visual estrella).</summary>
         public void MakeVeteran()
         {

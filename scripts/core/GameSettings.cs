@@ -16,6 +16,13 @@ namespace Natiolation.Core
         /// <summary>True si existe un archivo de guardado.</summary>
         public bool HasSave => Godot.FileAccess.FileExists("user://save.json");
 
+        /// <summary>
+        /// Datos de partida pendientes de aplicar al cargar la escena de juego.
+        /// SaveManager.Load() los escribe aquí antes de cambiar de escena.
+        /// SaveManager.ApplyPendingLoad() los consume y limpia este campo.
+        /// </summary>
+        public GameSaveData? PendingLoad { get; set; }
+
         public override void _Ready()
         {
             Instance = this;
