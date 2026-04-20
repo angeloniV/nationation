@@ -55,8 +55,8 @@ namespace Natiolation.Units
         private StandardMaterial3D? _hpBarMat = null;
 
         // Alturas del token
-        private const float BASE_TOP   = 0.10f;   // Y de la superficie de la base
-        private const float FIGURE_BOT = 0.10f;   // donde empieza la figura (encima de la base)
+        private const float FIGURE_BOT = 0.10f;   // donde empieza la figura sobre el tile
+        private const float TOKEN_TOP  = 1.48f;   // local-Y del tope del cuerpo del token
 
         // ================================================================
 
@@ -384,38 +384,12 @@ namespace Natiolation.Units
         //  CONSTRUCCIÓN DE VISUALES
         // ================================================================
 
-        private const float UnitScale = 1.42f;   // factor de escala global de la figura
+        private const float UnitScale = 2.5f;   // factor de escala global de la figura
 
         private void BuildVisuals()
         {
             // Escalar la figura entera para que sea más visible en el mapa
             Scale = new Vector3(UnitScale, UnitScale, UnitScale);
-
-            // Shadow: ajustar posición para que quede sobre la superficie del tile
-            float groundY = -(HexTile3D.TokenHover - 0.04f) / UnitScale;
-            AddChild(MI(
-                new CylinderMesh { TopRadius = 0.58f, BottomRadius = 0.58f,
-                                   Height = 0.03f, RadialSegments = 12 },
-                UnlitMat(new Color(0f, 0f, 0f, 0.42f), alpha: true),
-                new Vector3(0f, groundY, 0f)));
-
-            // ── Base disc — aro exterior + relleno civ ───────────────
-            AddChild(MI(
-                new CylinderMesh { TopRadius = 0.56f, BottomRadius = 0.62f,
-                                   Height = 0.10f, RadialSegments = 16 },
-                SolidMat(Colors.White.Lerp(CivColor, 0.18f), roughness: 0.15f, metallic: 0.60f),
-                new Vector3(0f, 0.05f, 0f)));
-            AddChild(MI(
-                new CylinderMesh { TopRadius = 0.48f, BottomRadius = 0.48f,
-                                   Height = 0.11f, RadialSegments = 16 },
-                SolidMat(CivColor, roughness: 0.38f),
-                new Vector3(0f, 0.055f, 0f)));
-            // Pequeño anillo negro interior para contraste
-            AddChild(MI(
-                new CylinderMesh { TopRadius = 0.35f, BottomRadius = 0.35f,
-                                   Height = 0.115f, RadialSegments = 12 },
-                SolidMat(new Color(0.08f, 0.08f, 0.10f), roughness: 0.80f),
-                new Vector3(0f, 0.057f, 0f)));
 
             // ── Figura principal (GLB > PNG > token de ajedrez) ─────────────
             if (!TryLoadGlb())
@@ -431,7 +405,7 @@ namespace Natiolation.Units
                 Billboard             = BaseMaterial3D.BillboardModeEnum.Enabled,
                 AlphaScissorThreshold = 0.10f,
                 Modulate              = Colors.White,
-                Position              = new Vector3(0f, 1.60f / UnitScale, 0f),
+                Position              = new Vector3(0f, TOKEN_TOP + 0.12f, 0f),
                 NoDepthTest           = true,
                 HorizontalAlignment   = HorizontalAlignment.Center,
             };
@@ -445,7 +419,7 @@ namespace Natiolation.Units
                 LightEnergy = 0.6f,
                 OmniRange   = 3.0f,
                 Visible     = false,
-                Position    = new Vector3(0f, 1.45f / UnitScale, 0f),
+                Position    = new Vector3(0f, TOKEN_TOP, 0f),
             };
             AddChild(_light);
 
@@ -464,7 +438,7 @@ namespace Natiolation.Units
         private void BuildBanner()
         {
             // Posiciones en espacio local (escala 1.0; Unit.Scale ya es UnitScale)
-            const float poleLocalBot = 1.34f;   // local-Y donde empieza el asta
+            const float poleLocalBot = TOKEN_TOP + 0.28f;   // local-Y donde empieza el asta
             const float poleH        = 0.52f;   // altura local del asta
             const float flagW        = 0.36f;   // ancho local de la bandera
             const float flagH        = 0.22f;   // alto  local de la bandera
@@ -711,21 +685,21 @@ namespace Natiolation.Units
             float y0 = FIGURE_BOT;
 
             // ── Fuste inferior (cónico, estilo peón de ajedrez) ──────
-            AddChild(MI(new CylinderMesh { TopRadius    = 0.13f, BottomRadius = 0.22f,
-                                           Height       = 0.32f, RadialSegments = 12 },
-                        civ, V(0f, y0 + 0.16f)));
+            AddChild(MI(new CylinderMesh { TopRadius    = 0.24f, BottomRadius = 0.40f,
+                                           Height       = 0.58f, RadialSegments = 12 },
+                        civ, V(0f, y0 + 0.29f)));
 
             // ── Cintura (estrangulación) ──────────────────────────────
-            AddChild(MI(new CylinderMesh { TopRadius    = 0.10f, BottomRadius = 0.12f,
-                                           Height       = 0.12f, RadialSegments = 10 },
-                        civD, V(0f, y0 + 0.38f)));
+            AddChild(MI(new CylinderMesh { TopRadius    = 0.18f, BottomRadius = 0.22f,
+                                           Height       = 0.20f, RadialSegments = 10 },
+                        civD, V(0f, y0 + 0.68f)));
 
             // ── Esfera superior ───────────────────────────────────────
-            AddChild(MI(new SphereMesh { Radius = 0.17f, RadialSegments = 10, Rings = 7 },
-                        civ, V(0f, y0 + 0.61f)));
+            AddChild(MI(new SphereMesh { Radius = 0.30f, RadialSegments = 12, Rings = 8 },
+                        civ, V(0f, y0 + 1.18f)));
 
             // ── Símbolo del tipo de unidad (icono compacto sobre el cuerpo)
-            AddTokenSymbol(y0 + 0.78f, metal, civL, dark);
+            AddTokenSymbol(y0 + TOKEN_TOP, metal, civL, dark);
         }
 
         /// <summary>
@@ -744,45 +718,45 @@ namespace Natiolation.Units
                 case UnitType.Longswordsman:
                 {
                     // Espada: hoja vertical + guarda cruzada
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.06f, 0.36f, 0.06f) },
-                                metal, V(0f, topY + 0.18f)));
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.24f, 0.05f, 0.05f) },
-                                metal, V(0f, topY + 0.13f)));
+                    AddChild(MI(new BoxMesh { Size = new Vector3(0.11f, 0.65f, 0.11f) },
+                                metal, V(0f, topY + 0.32f)));
+                    AddChild(MI(new BoxMesh { Size = new Vector3(0.43f, 0.09f, 0.09f) },
+                                metal, V(0f, topY + 0.23f)));
                     break;
                 }
                 case UnitType.Settler:
                 {
                     // Casita: cuerpo + tejado piramidal
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.26f, 0.18f, 0.22f) },
-                                civL, V(0f, topY + 0.09f)));
-                    AddChild(MI(new CylinderMesh { TopRadius=0f, BottomRadius=0.17f,
-                                    Height=0.16f, RadialSegments=4 },
-                                dark, V(0f, topY + 0.26f)));
+                    AddChild(MI(new BoxMesh { Size = new Vector3(0.47f, 0.32f, 0.40f) },
+                                civL, V(0f, topY + 0.16f)));
+                    AddChild(MI(new CylinderMesh { TopRadius=0f, BottomRadius=0.31f,
+                                    Height=0.29f, RadialSegments=4 },
+                                dark, V(0f, topY + 0.47f)));
                     break;
                 }
                 case UnitType.Scout:
                 {
                     // Flecha apuntando arriba
-                    AddChild(MI(new CylinderMesh { TopRadius=0f, BottomRadius=0.11f,
-                                    Height=0.26f, RadialSegments=4 },
-                                civL, V(0f, topY + 0.13f)));
+                    AddChild(MI(new CylinderMesh { TopRadius=0f, BottomRadius=0.20f,
+                                    Height=0.47f, RadialSegments=4 },
+                                civL, V(0f, topY + 0.23f)));
                     break;
                 }
                 case UnitType.Archer:
                 case UnitType.Longbowman:
                 {
                     // Arco: dos brazos angulados + cuerda
-                    var bL = MI(new BoxMesh { Size = new Vector3(0.05f, 0.24f, 0.05f) },
-                                 metal, V(-0.10f, topY + 0.12f));
+                    var bL = MI(new BoxMesh { Size = new Vector3(0.09f, 0.43f, 0.09f) },
+                                 metal, V(-0.18f, topY + 0.22f));
                     bL.RotationDegrees = new Vector3(0f, 0f, -14f);
                     AddChild(bL);
-                    var bR = MI(new BoxMesh { Size = new Vector3(0.05f, 0.24f, 0.05f) },
-                                 metal, V(+0.10f, topY + 0.12f));
+                    var bR = MI(new BoxMesh { Size = new Vector3(0.09f, 0.43f, 0.09f) },
+                                 metal, V(+0.18f, topY + 0.22f));
                     bR.RotationDegrees = new Vector3(0f, 0f, +14f);
                     AddChild(bR);
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.008f, 0.32f, 0.008f) },
+                    AddChild(MI(new BoxMesh { Size = new Vector3(0.014f, 0.58f, 0.014f) },
                                  SolidMat(new Color(0.90f, 0.86f, 0.74f), roughness: 0.90f),
-                                 V(0.04f, topY + 0.12f)));
+                                 V(0.07f, topY + 0.22f)));
                     break;
                 }
                 case UnitType.Knight:
@@ -790,20 +764,20 @@ namespace Natiolation.Units
                     // Penacho: tres conos rojos
                     var red = SolidMat(new Color(0.82f, 0.10f, 0.10f), roughness: 0.82f);
                     for (int p = -1; p <= 1; p++)
-                        AddChild(MI(new CylinderMesh { TopRadius=0f, BottomRadius=0.05f,
-                                        Height=0.25f, RadialSegments=5 },
-                                     red, V(p * 0.08f, topY + 0.125f)));
+                        AddChild(MI(new CylinderMesh { TopRadius=0f, BottomRadius=0.09f,
+                                        Height=0.45f, RadialSegments=5 },
+                                     red, V(p * 0.14f, topY + 0.22f)));
                     break;
                 }
                 case UnitType.Ballista:
                 {
                     // Cañón horizontal + plataforma
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.30f, 0.06f, 0.22f) },
+                    AddChild(MI(new BoxMesh { Size = new Vector3(0.54f, 0.11f, 0.40f) },
                                  SolidMat(new Color(0.50f, 0.34f, 0.18f), roughness: 0.82f),
-                                 V(0f, topY + 0.03f)));
-                    var barrel = MI(new CylinderMesh { TopRadius=0.04f, BottomRadius=0.06f,
-                                        Height=0.28f, RadialSegments=8 },
-                                     metal, V(0f, topY + 0.05f, 0.10f));
+                                 V(0f, topY + 0.05f)));
+                    var barrel = MI(new CylinderMesh { TopRadius=0.07f, BottomRadius=0.11f,
+                                        Height=0.50f, RadialSegments=8 },
+                                     metal, V(0f, topY + 0.09f, 0.18f));
                     barrel.RotationDegrees = new Vector3(90f, 0f, 0f);
                     AddChild(barrel);
                     break;
@@ -811,9 +785,9 @@ namespace Natiolation.Units
                 case UnitType.Musketman:
                 {
                     // Mosquete diagonal
-                    var musket = MI(new BoxMesh { Size = new Vector3(0.04f, 0.40f, 0.04f) },
+                    var musket = MI(new BoxMesh { Size = new Vector3(0.07f, 0.72f, 0.07f) },
                                      SolidMat(new Color(0.44f, 0.30f, 0.14f), roughness: 0.78f),
-                                     V(0.08f, topY + 0.20f));
+                                     V(0.14f, topY + 0.36f));
                     musket.RotationDegrees = new Vector3(0f, 0f, 14f);
                     AddChild(musket);
                     break;
@@ -821,19 +795,19 @@ namespace Natiolation.Units
                 case UnitType.Worker:
                 {
                     // Pala: mango + hoja
-                    AddChild(MI(new CylinderMesh { TopRadius=0.028f, BottomRadius=0.032f,
-                                    Height=0.34f, RadialSegments=5 },
+                    AddChild(MI(new CylinderMesh { TopRadius=0.05f, BottomRadius=0.06f,
+                                    Height=0.61f, RadialSegments=5 },
                                  SolidMat(new Color(0.52f, 0.35f, 0.18f), roughness: 0.80f),
-                                 V(0f, topY + 0.17f)));
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.16f, 0.14f, 0.04f) },
-                                 metal, V(0f, topY + 0.37f)));
+                                 V(0f, topY + 0.31f)));
+                    AddChild(MI(new BoxMesh { Size = new Vector3(0.29f, 0.25f, 0.07f) },
+                                 metal, V(0f, topY + 0.67f)));
                     break;
                 }
                 default:
                 {
                     // Genérico: esfera pequeña en color civ claro
-                    AddChild(MI(new SphereMesh { Radius=0.11f, RadialSegments=6, Rings=4 },
-                                 civL, V(0f, topY + 0.11f)));
+                    AddChild(MI(new SphereMesh { Radius=0.20f, RadialSegments=8, Rings=5 },
+                                 civL, V(0f, topY + 0.20f)));
                     break;
                 }
             }
