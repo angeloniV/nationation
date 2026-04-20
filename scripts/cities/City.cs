@@ -548,13 +548,21 @@ namespace Natiolation.Cities
                 float vx   = MathF.Cos(vAng) * (wallR + 0.18f);
                 float vz   = MathF.Sin(vAng) * (wallR + 0.18f);
 
-                // Torre cuadrada — más angular, menos "globo"
+                // Torre cuadrada
                 AddMI(new BoxMesh { Size = new Vector3(towerR * 2.2f, towerH, towerR * 2.2f) },
                       stone, V(vx, base_ + towerH * 0.5f, vz));
-                // Tejadillo piramidal de 4 lados
-                AddMI(new CylinderMesh { TopRadius = 0f, BottomRadius = towerR + 0.14f,
-                          Height = towerH * 0.35f, RadialSegments = 4 },
-                      roofMat, V(vx, base_ + towerH + towerH * 0.175f, vz));
+                // Parapeto plano con almenas en las esquinas
+                float pW = towerR * 2.2f + 0.08f;
+                AddMI(new BoxMesh { Size = new Vector3(pW, 0.10f, pW) },
+                      stone, V(vx, base_ + towerH + 0.05f, vz));
+                for (int mi2 = 0; mi2 < 4; mi2++)
+                {
+                    float ba = mi2 * MathF.PI * 0.5f + MathF.PI * 0.25f;
+                    float bx2 = vx + MathF.Cos(ba) * (towerR + 0.02f);
+                    float bz2 = vz + MathF.Sin(ba) * (towerR + 0.02f);
+                    AddMI(new BoxMesh { Size = new Vector3(0.14f, 0.20f, 0.14f) },
+                          stone, V(bx2, base_ + towerH + 0.10f + 0.10f, bz2));
+                }
             }
         }
 
@@ -584,9 +592,16 @@ namespace Natiolation.Cities
                               :              thW * 0.58f;
             if (!TrySpawnGlb(thRoofGlb, V(0, roofTopY, 0), thRoofScale))
             {
-                // Fallback: pirámide 4 lados
-                AddMI(new CylinderMesh { TopRadius = 0f, BottomRadius = rfR,
-                          Height = rfH, RadialSegments = 4 }, roofMat, V(0, roofTopY + rfH * 0.5f));
+                // Fallback: parapeto dentado angular (style de fortaleza)
+                float cW = thW + 0.10f;
+                AddMI(new BoxMesh { Size = new Vector3(cW, 0.12f, cW) },
+                      roofMat, V(0, roofTopY + 0.06f));
+                // Cuatro almenas en los lados del ayuntamiento
+                float[] bx3 = { -cW*0.5f + 0.08f, cW*0.5f - 0.08f, 0f, 0f };
+                float[] bz3 = { 0f, 0f, -cW*0.5f + 0.08f, cW*0.5f - 0.08f };
+                for (int ii = 0; ii < 4; ii++)
+                    AddMI(new BoxMesh { Size = new Vector3(0.16f, 0.22f, 0.16f) },
+                          roofMat, V(bx3[ii], roofTopY + 0.12f + 0.11f, bz3[ii]));
             }
 
             // Torres laterales (progresivas)
@@ -596,16 +611,23 @@ namespace Natiolation.Cities
                 float tH = stage >= 2 ? 1.78f : 1.28f;
                 float tX = thW * 0.5f + tR * 1.2f;
 
-                // Torre izquierda — cuerpo cuadrado + tejado GLB
+                // Torre izquierda — cuerpo cuadrado + almenas
                 AddMI(new BoxMesh { Size = new Vector3(tR * 2.1f, tH, tR * 2.1f) },
                       stoneD, V(-tX, base_ + tH * 0.5f));
                 float towerRoofGlb_scale = tR * 1.8f;
                 if (!TrySpawnGlb("res://assets/buildings/roof-point.glb",
                                  V(-tX, base_ + tH, 0), towerRoofGlb_scale))
                 {
-                    AddMI(new CylinderMesh { TopRadius = 0f, BottomRadius = tR + 0.16f,
-                              Height = (tR + 0.14f) * 1.2f, RadialSegments = 4 },
-                          roofMat, V(-tX, base_ + tH + (tR + 0.14f) * 0.6f));
+                    float twW = tR * 2.1f + 0.06f;
+                    AddMI(new BoxMesh { Size = new Vector3(twW, 0.09f, twW) },
+                          stoneD, V(-tX, base_ + tH + 0.045f));
+                    for (int ci = 0; ci < 4; ci++)
+                    {
+                        float ca = ci * MathF.PI * 0.5f + MathF.PI * 0.25f;
+                        AddMI(new BoxMesh { Size = new Vector3(0.12f, 0.18f, 0.12f) }, stoneD,
+                              V(-tX + MathF.Cos(ca) * tR, base_ + tH + 0.09f + 0.09f,
+                                MathF.Sin(ca) * tR));
+                    }
                 }
 
                 if (stage >= 2)
@@ -616,9 +638,16 @@ namespace Natiolation.Cities
                     if (!TrySpawnGlb("res://assets/buildings/roof-point.glb",
                                      V(+tX, base_ + tH, 0), towerRoofGlb_scale))
                     {
-                        AddMI(new CylinderMesh { TopRadius = 0f, BottomRadius = tR + 0.16f,
-                                  Height = (tR + 0.14f) * 1.2f, RadialSegments = 4 },
-                              roofMat, V(+tX, base_ + tH + (tR + 0.14f) * 0.6f));
+                        float twW = tR * 2.1f + 0.06f;
+                        AddMI(new BoxMesh { Size = new Vector3(twW, 0.09f, twW) },
+                              stoneD, V(+tX, base_ + tH + 0.045f));
+                        for (int ci = 0; ci < 4; ci++)
+                        {
+                            float ca = ci * MathF.PI * 0.5f + MathF.PI * 0.25f;
+                            AddMI(new BoxMesh { Size = new Vector3(0.12f, 0.18f, 0.12f) }, stoneD,
+                                  V(+tX + MathF.Cos(ca) * tR, base_ + tH + 0.09f + 0.09f,
+                                    MathF.Sin(ca) * tR));
+                        }
                     }
                 }
             }
@@ -672,9 +701,15 @@ namespace Natiolation.Cities
                     // Fallback procedural según estilo
                     if (style == 0)
                     {
-                        AddMI(new CylinderMesh { TopRadius = 0f, BottomRadius = hw * 0.88f,
-                                  Height = 0.64f * s, RadialSegments = 4 },
-                              roofFallback, V(x, roofY + 0.32f * s, z));
+                        // Tejado a dos aguas: cumbrera + dos vertientes BoxMesh
+                        AddMI(new BoxMesh { Size = new Vector3(hw * 1.05f, 0.08f, 0.08f) },
+                              roofFallback, V(x, roofY + 0.48f * s, z));
+                        var sL = AddMI(new BoxMesh { Size = new Vector3(hw * 1.06f, 0.08f, hd * 0.62f) },
+                                       roofFallback, V(x, roofY + 0.24f * s, z - hd * 0.25f));
+                        sL.RotationDegrees = new Vector3(-26f, 0f, 0f);
+                        var sR = AddMI(new BoxMesh { Size = new Vector3(hw * 1.06f, 0.08f, hd * 0.62f) },
+                                       roofFallback, V(x, roofY + 0.24f * s, z + hd * 0.25f));
+                        sR.RotationDegrees = new Vector3(+26f, 0f, 0f);
                     }
                     else if (style == 1)
                     {

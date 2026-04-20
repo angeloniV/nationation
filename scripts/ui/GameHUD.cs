@@ -166,17 +166,17 @@ namespace Natiolation.UI
 		private Control BuildTopBar()
 		{
 			var panel = Inset(BgDark);
-			panel.CustomMinimumSize = new Vector2(0, 80);
+			panel.CustomMinimumSize = new Vector2(0, 52);
 			panel.MouseFilter       = Control.MouseFilterEnum.Ignore;
 
-			var m   = Margin(panel, 20, 20, 8, 8);
-			var row = HBox(16);
+			var m   = Margin(panel, 14, 14, 6, 6);
+			var row = HBox(12);
 			row.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
 			row.SizeFlagsVertical   = Control.SizeFlags.ExpandFill;
 			m.AddChild(row);
 
 			// Título
-			var title = Lbl("NATIOLATION", 26, Gold);
+			var title = Lbl("NATIOLATION", 20, Gold);
 			title.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
 			row.AddChild(title);
 
@@ -195,7 +195,7 @@ namespace Natiolation.UI
 			resCol.MouseFilter = Control.MouseFilterEnum.Ignore;
 			resBox.AddChild(resCol);
 
-			_researchTopLabel = Lbl("Sin investigación activa  [T]", 17, CScience);
+			_researchTopLabel = Lbl("Sin investigación activa  [T]", 14, CScience);
 			resCol.AddChild(_researchTopLabel);
 
 			_researchTopBar = new ProgressBar();
@@ -212,19 +212,19 @@ namespace Natiolation.UI
 			row.AddChild(resBox);
 
 			// ── Economía ──────────────────────────────────────────────────
-			_goldLabel = Lbl("💰  50   (+0/t)", 18, Gold);
+			_goldLabel = Lbl("💰  50   (+0/t)", 15, Gold);
 			_goldLabel.HorizontalAlignment = HorizontalAlignment.Right;
-			_goldLabel.CustomMinimumSize   = new Vector2(180, 0);
+			_goldLabel.CustomMinimumSize   = new Vector2(150, 0);
 			row.AddChild(_goldLabel);
 
-			_scienceLabel = Lbl("🔬  0   (+1/t)", 18, CScience);
+			_scienceLabel = Lbl("🔬  0   (+1/t)", 15, CScience);
 			_scienceLabel.HorizontalAlignment = HorizontalAlignment.Right;
-			_scienceLabel.CustomMinimumSize   = new Vector2(160, 0);
+			_scienceLabel.CustomMinimumSize   = new Vector2(130, 0);
 			row.AddChild(_scienceLabel);
 
-			_turnLabel = Lbl("TURNO  1", 20, TextMain);
+			_turnLabel = Lbl("TURNO  1", 16, TextMain);
 			_turnLabel.HorizontalAlignment = HorizontalAlignment.Right;
-			_turnLabel.CustomMinimumSize   = new Vector2(120, 0);
+			_turnLabel.CustomMinimumSize   = new Vector2(100, 0);
 			row.AddChild(_turnLabel);
 
 			// Tech Tree button

@@ -417,10 +417,10 @@ namespace Natiolation.Units
                 SolidMat(new Color(0.08f, 0.08f, 0.10f), roughness: 0.80f),
                 new Vector3(0f, 0.057f, 0f)));
 
-            // ── Figura principal (GLB > PNG > humanoide) ─────────────
+            // ── Figura principal (GLB > PNG > token de ajedrez) ─────────────
             if (!TryLoadGlb())
                 if (!TryLoadSprite())
-                    BuildHumanoid();
+                    BuildToken();
 
             // ── Label de movimiento ───────────────────────────────────
             _label = new Label3D
@@ -687,381 +687,153 @@ namespace Natiolation.Units
         }
 
         // ================================================================
-        //  NIVEL 3: HUMANOIDE PROCEDURAL (fallback sin assets externos)
+        //  NIVEL 3: TOKEN DE AJEDREZ (fallback sin assets externos)
         // ================================================================
 
         /// <summary>
-        /// Figura humanoide completa: piernas separadas, torso, brazos, cabeza
-        /// y equipo diferenciado por tipo de unidad.
+        /// Pieza de ajedrez estilizada: fuste cónico + cintura + esfera + símbolo por tipo.
+        /// Sin extremidades sueltas — cuerpo unificado imposible de deformar.
         ///
-        /// Alturas (sobre FIGURE_BOT = 0.10):
-        ///   Piernas  0.00 – 0.42  (cy = 0.21)
-        ///   Torso    0.42 – 0.78  (cy = 0.60)
-        ///   Cuello   0.78 – 0.84
-        ///   Cabeza   0.84 – 1.09  (esfera r=0.152, cy ≈ 0.99)
-        ///   Equipo   encima de la cabeza / en las manos
+        /// Alturas sobre FIGURE_BOT = 0.10:
+        ///   Fuste   0.00 – 0.32  (CylinderMesh top=0.13 bot=0.22)
+        ///   Cintura 0.32 – 0.44  (CylinderMesh top=0.10 bot=0.12)
+        ///   Esfera  center = 0.61  (r = 0.17)
+        ///   Símbolo desde 0.78 hacia arriba
         /// </summary>
-        private void BuildHumanoid()
+        private void BuildToken()
         {
-            // ─── Materiales base ────────────────────────────────────
-            var skin    = SolidMat(new Color(0.90f, 0.76f, 0.60f), roughness: 0.80f);
-            var civ     = SolidMat(CivColor,                        roughness: 0.50f, metallic: 0.10f);
-            var civDark = SolidMat(CivColor.Darkened(0.28f),        roughness: 0.60f);
-            var civLite = SolidMat(CivColor.Lightened(0.28f),       roughness: 0.30f, metallic: 0.22f);
-            var metal   = SolidMat(new Color(0.62f, 0.64f, 0.68f),  roughness: 0.35f, metallic: 0.72f);
-            var gold    = SolidMat(new Color(0.86f, 0.76f, 0.18f),  roughness: 0.28f, metallic: 0.68f);
-            var dark    = SolidMat(new Color(0.12f, 0.12f, 0.15f),  roughness: 0.70f);
+            var civ   = SolidMat(CivColor,                        roughness: 0.35f, metallic: 0.15f);
+            var civD  = SolidMat(CivColor.Darkened(0.28f),        roughness: 0.50f);
+            var civL  = SolidMat(CivColor.Lightened(0.30f),       roughness: 0.25f, metallic: 0.28f);
+            var metal = SolidMat(new Color(0.70f, 0.72f, 0.76f),  roughness: 0.28f, metallic: 0.82f);
+            var dark  = SolidMat(new Color(0.10f, 0.10f, 0.12f),  roughness: 0.75f);
 
-            float y0 = FIGURE_BOT;  // 0.10
+            float y0 = FIGURE_BOT;
 
-            // ─── Piernas ────────────────────────────────────────────
-            const float legH = 0.42f, legR = 0.072f;
-            float legCY = y0 + legH * 0.5f;
-            AddChild(MI(new CylinderMesh { TopRadius = legR,        BottomRadius = legR * 1.14f,
-                            Height = legH, RadialSegments = 7 }, civDark, V(-0.092f, legCY)));
-            AddChild(MI(new CylinderMesh { TopRadius = legR,        BottomRadius = legR * 1.14f,
-                            Height = legH, RadialSegments = 7 }, civDark, V(+0.092f, legCY)));
+            // ── Fuste inferior (cónico, estilo peón de ajedrez) ──────
+            AddChild(MI(new CylinderMesh { TopRadius    = 0.13f, BottomRadius = 0.22f,
+                                           Height       = 0.32f, RadialSegments = 12 },
+                        civ, V(0f, y0 + 0.16f)));
 
-            // Pies
-            AddChild(MI(new BoxMesh { Size = new Vector3(0.11f, 0.052f, 0.17f) },
-                        dark, V(-0.092f, y0 + 0.026f, 0.032f)));
-            AddChild(MI(new BoxMesh { Size = new Vector3(0.11f, 0.052f, 0.17f) },
-                        dark, V(+0.092f, y0 + 0.026f, 0.032f)));
+            // ── Cintura (estrangulación) ──────────────────────────────
+            AddChild(MI(new CylinderMesh { TopRadius    = 0.10f, BottomRadius = 0.12f,
+                                           Height       = 0.12f, RadialSegments = 10 },
+                        civD, V(0f, y0 + 0.38f)));
 
-            // ─── Torso ──────────────────────────────────────────────
-            float torsoBot = y0 + legH;                 // 0.52
-            const float torsoH = 0.36f;
-            AddChild(MI(new CylinderMesh { TopRadius = 0.148f, BottomRadius = 0.178f,
-                            Height = torsoH, RadialSegments = 8 },
-                        civ, V(0f, torsoBot + torsoH * 0.5f)));
+            // ── Esfera superior ───────────────────────────────────────
+            AddChild(MI(new SphereMesh { Radius = 0.17f, RadialSegments = 10, Rings = 7 },
+                        civ, V(0f, y0 + 0.61f)));
 
-            // ─── Brazos ─────────────────────────────────────────────
-            float armY = torsoBot + torsoH * 0.76f;     // altura de los hombros
-            const float armH = 0.27f, armR = 0.054f;
-
-            var lArm = MI(new CylinderMesh { TopRadius = armR * 0.82f, BottomRadius = armR,
-                              Height = armH, RadialSegments = 6 }, civ, V(-0.228f, armY - 0.045f));
-            lArm.RotationDegrees = new Vector3(0f, 0f, 28f);
-            AddChild(lArm);
-
-            var rArm = MI(new CylinderMesh { TopRadius = armR * 0.82f, BottomRadius = armR,
-                              Height = armH, RadialSegments = 6 }, civ, V(+0.228f, armY - 0.045f));
-            rArm.RotationDegrees = new Vector3(0f, 0f, -28f);
-            AddChild(rArm);
-
-            // ─── Cuello y cabeza ────────────────────────────────────
-            float headBot = torsoBot + torsoH;          // 0.88
-            const float neckH = 0.058f, headR = 0.150f;
-
-            AddChild(MI(new CylinderMesh { TopRadius = 0.070f, BottomRadius = 0.080f,
-                            Height = neckH, RadialSegments = 6 },
-                        skin, V(0f, headBot + neckH * 0.5f)));
-
-            float headCY = headBot + neckH + headR;     // ≈ 1.088
-            AddChild(MI(new SphereMesh { Radius = headR, RadialSegments = 10, Rings = 7 },
-                        skin, V(0f, headCY)));
-
-            // Ojos — dos pequeñas esferas oscuras en el frontal de la cabeza
-            var eyeMat = SolidMat(new Color(0.06f, 0.05f, 0.04f), roughness: 0.92f);
-            float eyeFwd = headR * 0.74f;
-            float eyeUp  = headCY + headR * 0.10f;
-            AddChild(MI(new SphereMesh { Radius = 0.026f, RadialSegments = 5, Rings = 3 },
-                        eyeMat, V(-0.058f, eyeUp, eyeFwd)));
-            AddChild(MI(new SphereMesh { Radius = 0.026f, RadialSegments = 5, Rings = 3 },
-                        eyeMat, V(+0.058f, eyeUp, eyeFwd)));
-            // Nariz — pequeño triángulo/cono
-            var noseNode = MI(new CylinderMesh { TopRadius = 0f, BottomRadius = 0.022f,
-                                  Height = 0.038f, RadialSegments = 4 },
-                               SolidMat(new Color(0.80f, 0.64f, 0.50f), roughness: 0.82f),
-                               V(0f, headCY - headR * 0.06f, headR * 0.92f));
-            noseNode.RotationDegrees = new Vector3(90f, 0f, 0f);
-            AddChild(noseNode);
-
-            // ─── Equipo diferenciado por tipo ───────────────────────
-            AddUnitEquipment(headCY, headR, torsoBot, torsoH, armY, metal, gold, dark, civLite, skin, civDark);
+            // ── Símbolo del tipo de unidad (icono compacto sobre el cuerpo)
+            AddTokenSymbol(y0 + 0.78f, metal, civL, dark);
         }
 
-        /// <summary>Agrega casco/sombrero y arma según el tipo de unidad.</summary>
-        private void AddUnitEquipment(
-            float headCY, float headR,
-            float torsoBot, float torsoH, float armY,
-            StandardMaterial3D metal, StandardMaterial3D gold,
-            StandardMaterial3D dark,  StandardMaterial3D civLite,
-            StandardMaterial3D skin,  StandardMaterial3D civDark)
+        /// <summary>
+        /// Icono compacto sobre el cuerpo del token, diferenciado por tipo.
+        /// Todos los elementos son auto-contenidos — sin piezas sueltas fuera del volumen del peón.
+        /// </summary>
+        private void AddTokenSymbol(float topY,
+                                     StandardMaterial3D metal,
+                                     StandardMaterial3D civL,
+                                     StandardMaterial3D dark)
         {
-            float headTop = headCY + headR;
-
             switch (UnitType)
             {
-                // ── WARRIOR: casco metálico + espada ──────────────────
                 case UnitType.Warrior:
-                {
-                    // Casco: ala → cuerpo → punta
-                    AddChild(MI(new CylinderMesh { TopRadius = 0.09f, BottomRadius = 0.20f,
-                                    Height = 0.055f, RadialSegments = 10 },
-                                metal, V(0f, headCY + headR * 0.40f)));
-                    AddChild(MI(new CylinderMesh { TopRadius = 0.12f, BottomRadius = 0.12f,
-                                    Height = 0.13f, RadialSegments = 10 },
-                                metal, V(0f, headCY + headR * 0.40f + 0.09f)));
-                    AddChild(MI(new CylinderMesh { TopRadius = 0f,    BottomRadius = 0.055f,
-                                    Height = 0.09f, RadialSegments = 8 },
-                                metal, V(0f, headTop + 0.045f)));
-
-                    // Espada en mano derecha
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.042f, 0.52f, 0.042f) },
-                                metal, V(0.42f, torsoBot + torsoH * 0.32f)));
-                    // Guarda de la espada
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.20f, 0.038f, 0.038f) },
-                                gold, V(0.42f, torsoBot + torsoH * 0.58f)));
-                    break;
-                }
-
-                // ── SETTLER: sombrero de ala ancha + mochila ──────────
-                case UnitType.Settler:
-                {
-                    // Ala del sombrero
-                    AddChild(MI(new CylinderMesh { TopRadius = 0.265f, BottomRadius = 0.265f,
-                                    Height = 0.038f, RadialSegments = 12 },
-                                dark, V(0f, headCY + headR * 0.35f)));
-                    // Copa del sombrero
-                    AddChild(MI(new CylinderMesh { TopRadius = 0.135f, BottomRadius = 0.135f,
-                                    Height = 0.21f, RadialSegments = 10 },
-                                dark, V(0f, headCY + headR * 0.35f + 0.125f)));
-                    // Banda del sombrero
-                    AddChild(MI(new CylinderMesh { TopRadius = 0.138f, BottomRadius = 0.138f,
-                                    Height = 0.038f, RadialSegments = 10 },
-                                gold, V(0f, headCY + headR * 0.35f + 0.038f)));
-
-                    // Mochila (atrás del torso)
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.22f, 0.25f, 0.11f) },
-                                SolidMat(new Color(0.52f, 0.36f, 0.20f), roughness: 0.82f),
-                                V(0f, torsoBot + torsoH * 0.48f, -0.22f)));
-                    break;
-                }
-
-                // ── SCOUT: cinta + pluma + capa ───────────────────────
-                case UnitType.Scout:
-                {
-                    // Cinta en la cabeza (aro dorado fino)
-                    AddChild(MI(new CylinderMesh { TopRadius = headR + 0.012f, BottomRadius = headR + 0.012f,
-                                    Height = 0.036f, RadialSegments = 12 },
-                                gold, V(0f, headCY - headR * 0.08f)));
-                    // Pluma (cono inclinado hacia atrás)
-                    var feather = MI(new CylinderMesh { TopRadius = 0f, BottomRadius = 0.028f,
-                                         Height = 0.34f, RadialSegments = 5 },
-                                     civLite, V(0f, headTop + 0.17f, -0.038f));
-                    feather.RotationDegrees = new Vector3(-16f, 0f, 0f);
-                    AddChild(feather);
-                    // Capa: rectángulo fino detrás del torso
-                    var cape = MI(new BoxMesh { Size = new Vector3(0.28f, 0.30f, 0.025f) },
-                                  civLite, V(0f, torsoBot + torsoH * 0.42f, -0.19f));
-                    AddChild(cape);
-                    break;
-                }
-
-                // ── ARCHER: carcaj + arco ─────────────────────────────
-                case UnitType.Archer:
-                {
-                    // Carcaj en la espalda
-                    var quiver = MI(new CylinderMesh { TopRadius = 0.058f, BottomRadius = 0.068f,
-                                        Height = 0.28f, RadialSegments = 7 },
-                                    SolidMat(new Color(0.44f, 0.26f, 0.11f), roughness: 0.76f),
-                                    V(0.12f, torsoBot + torsoH * 0.66f, -0.20f));
-                    quiver.RotationDegrees = new Vector3(-14f, 0f, 0f);
-                    AddChild(quiver);
-                    // Flechas asomando
-                    for (int f = -1; f <= 1; f++)
-                    {
-                        AddChild(MI(new CylinderMesh { TopRadius = 0f, BottomRadius = 0.016f,
-                                        Height = 0.14f, RadialSegments = 4 },
-                                    metal, V(0.12f + f * 0.028f, torsoBot + torsoH * 0.66f + 0.18f, -0.19f)));
-                    }
-                    // Arco (palo curvo aproximado: dos segmentos angulados)
-                    var bowBot = MI(new BoxMesh { Size = new Vector3(0.032f, 0.28f, 0.032f) },
-                                   SolidMat(new Color(0.50f, 0.34f, 0.12f), roughness: 0.72f),
-                                   V(-0.35f, torsoBot + torsoH * 0.30f, 0.05f));
-                    bowBot.RotationDegrees = new Vector3(0f, 0f, 10f);
-                    AddChild(bowBot);
-                    var bowTop = MI(new BoxMesh { Size = new Vector3(0.032f, 0.28f, 0.032f) },
-                                   SolidMat(new Color(0.50f, 0.34f, 0.12f), roughness: 0.72f),
-                                   V(-0.35f, torsoBot + torsoH * 0.64f, 0.05f));
-                    bowTop.RotationDegrees = new Vector3(0f, 0f, -10f);
-                    AddChild(bowTop);
-                    // Cuerda del arco
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.010f, 0.50f, 0.010f) },
-                                SolidMat(new Color(0.88f, 0.84f, 0.72f), roughness: 0.90f),
-                                V(-0.30f, torsoBot + torsoH * 0.47f, 0.09f)));
-                    break;
-                }
-
-                // ── LONGBOWMAN: capucha verde + arco largo ────────────
-                case UnitType.Longbowman:
-                {
-                    var hoodGreen = SolidMat(new Color(0.18f, 0.42f, 0.12f), roughness: 0.78f);
-                    // Capucha (cono sobre cabeza)
-                    AddChild(MI(new CylinderMesh { TopRadius = 0f, BottomRadius = headR + 0.02f,
-                                    Height = 0.30f, RadialSegments = 8 },
-                                hoodGreen, V(0f, headTop + 0.06f)));
-                    // Arco largo
-                    var longbow = MI(new BoxMesh { Size = new Vector3(0.028f, 0.70f, 0.028f) },
-                                     SolidMat(new Color(0.45f, 0.28f, 0.10f), roughness: 0.72f),
-                                     V(-0.36f, torsoBot + torsoH * 0.46f, 0.05f));
-                    longbow.RotationDegrees = new Vector3(0f, 0f, 5f);
-                    AddChild(longbow);
-                    // Cuerda
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.009f, 0.62f, 0.009f) },
-                                SolidMat(new Color(0.88f, 0.84f, 0.72f), roughness: 0.90f),
-                                V(-0.30f, torsoBot + torsoH * 0.46f, 0.10f)));
-                    break;
-                }
-
-                // ── SWORDSMAN: escudo + espada corta + visera ─────────
                 case UnitType.Swordsman:
-                {
-                    // Visera sobre casco
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.24f, 0.06f, 0.06f) },
-                                metal, V(0f, headCY + headR * 0.08f, headR + 0.018f)));
-                    // Escudo (izquierda)
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.08f, 0.30f, 0.20f) },
-                                SolidMat(new Color(0.58f, 0.12f, 0.12f), roughness: 0.68f),
-                                V(-0.34f, torsoBot + torsoH * 0.44f, 0.04f)));
-                    // Espada corta (derecha)
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.04f, 0.36f, 0.04f) },
-                                metal, V(0.37f, torsoBot + torsoH * 0.48f, 0.04f)));
-                    // Guarda
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.16f, 0.036f, 0.036f) },
-                                metal, V(0.37f, torsoBot + torsoH * 0.62f, 0.04f)));
-                    break;
-                }
-
-                // ── KNIGHT: yelmo con penacho + lanza ─────────────────
-                case UnitType.Knight:
-                {
-                    var plumeRed = SolidMat(new Color(0.82f, 0.10f, 0.10f), roughness: 0.85f);
-                    // Yelmo completo (cubre cabeza entera)
-                    AddChild(MI(new SphereMesh { Radius = headR + 0.018f, RadialSegments = 10, Rings = 5 },
-                                metal, V(0f, headCY)));
-                    // Visera
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.20f, 0.05f, 0.05f) },
-                                metal, V(0f, headCY - headR * 0.12f, headR + 0.010f)));
-                    // Penacho (cilindro rojo sobre yelmo)
-                    var plume = MI(new CylinderMesh { TopRadius = 0.018f, BottomRadius = 0.04f,
-                                        Height = 0.24f, RadialSegments = 5 },
-                                   plumeRed, V(0f, headTop + 0.12f));
-                    plume.RotationDegrees = new Vector3(-10f, 0f, 0f);
-                    AddChild(plume);
-                    // Lanza (palo largo + punta)
-                    AddChild(MI(new CylinderMesh { TopRadius = 0.022f, BottomRadius = 0.022f,
-                                    Height = 0.80f, RadialSegments = 5 },
-                                SolidMat(new Color(0.50f, 0.34f, 0.14f), roughness: 0.75f),
-                                V(0.35f, torsoBot + torsoH * 0.60f)));
-                    AddChild(MI(new CylinderMesh { TopRadius = 0f, BottomRadius = 0.040f,
-                                    Height = 0.14f, RadialSegments = 5 },
-                                metal, V(0.35f, torsoBot + torsoH * 0.60f + 0.47f)));
-                    break;
-                }
-
-                // ── BALLISTA: armazón de madera (no humanoide) ─────────
-                case UnitType.Ballista:
-                {
-                    var wood = SolidMat(new Color(0.52f, 0.36f, 0.18f), roughness: 0.82f);
-                    // Marco base
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.50f, 0.08f, 0.36f) },
-                                wood, V(0f, torsoBot + 0.04f)));
-                    // Patas delanteras
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.06f, 0.32f, 0.06f) },
-                                wood, V(-0.20f, torsoBot - 0.12f, -0.14f)));
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.06f, 0.32f, 0.06f) },
-                                wood, V( 0.20f, torsoBot - 0.12f, -0.14f)));
-                    // Patas traseras
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.06f, 0.32f, 0.06f) },
-                                wood, V(-0.20f, torsoBot - 0.12f,  0.14f)));
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.06f, 0.32f, 0.06f) },
-                                wood, V( 0.20f, torsoBot - 0.12f,  0.14f)));
-                    // Arco de torsión (horizontal)
-                    AddChild(MI(new CylinderMesh { TopRadius = 0.028f, BottomRadius = 0.028f,
-                                    Height = 0.42f, RadialSegments = 6 },
-                                metal, V(0f, torsoBot + 0.22f)));
-                    // Proyectil (cilindro apuntando al frente)
-                    var bolt = MI(new CylinderMesh { TopRadius = 0.018f, BottomRadius = 0.026f,
-                                       Height = 0.28f, RadialSegments = 5 },
-                                  metal, V(0f, torsoBot + 0.22f, -0.15f));
-                    bolt.RotationDegrees = new Vector3(90f, 0f, 0f);
-                    AddChild(bolt);
-                    break;
-                }
-
-                // ── LONGSWORDSMAN: armadura gótica + espadón ──────────
                 case UnitType.Longswordsman:
                 {
-                    var plate = SolidMat(new Color(0.72f, 0.72f, 0.72f), roughness: 0.38f, metallic: 0.55f);
-                    // Yelmo gótico (cubre cabeza + cresta)
-                    AddChild(MI(new SphereMesh { Radius = headR + 0.025f, RadialSegments = 10, Rings = 5 },
-                                plate, V(0f, headCY)));
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.06f, 0.22f, 0.04f) },
-                                plate, V(0f, headTop + 0.11f)));  // cresta
-                    // Hombreras (pauldrons)
-                    AddChild(MI(new SphereMesh { Radius = 0.12f, RadialSegments = 8, Rings = 4 },
-                                plate, V(-0.28f, torsoBot + torsoH * 0.82f)));
-                    AddChild(MI(new SphereMesh { Radius = 0.12f, RadialSegments = 8, Rings = 4 },
-                                plate, V( 0.28f, torsoBot + torsoH * 0.82f)));
-                    // Espadón (grande, a dos manos)
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.05f, 0.70f, 0.05f) },
-                                metal, V(0.38f, torsoBot + torsoH * 0.38f)));
-                    // Guarda cruzada
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.26f, 0.040f, 0.040f) },
-                                metal, V(0.38f, torsoBot + torsoH * 0.62f)));
+                    // Espada: hoja vertical + guarda cruzada
+                    AddChild(MI(new BoxMesh { Size = new Vector3(0.06f, 0.36f, 0.06f) },
+                                metal, V(0f, topY + 0.18f)));
+                    AddChild(MI(new BoxMesh { Size = new Vector3(0.24f, 0.05f, 0.05f) },
+                                metal, V(0f, topY + 0.13f)));
                     break;
                 }
-
-                // ── MUSKETMAN: tricornio + mosquete ───────────────────
-                case UnitType.Musketman:
+                case UnitType.Settler:
                 {
-                    var tricornMat = SolidMat(new Color(0.12f, 0.10f, 0.08f), roughness: 0.72f);
-                    // Ala trasera del tricornio
-                    AddChild(MI(new CylinderMesh { TopRadius = 0.24f, BottomRadius = 0.24f,
-                                    Height = 0.035f, RadialSegments = 3 },
-                                tricornMat, V(0f, headCY + headR * 0.28f)));
-                    // Copa del sombrero
-                    AddChild(MI(new CylinderMesh { TopRadius = 0.12f, BottomRadius = 0.15f,
-                                    Height = 0.18f, RadialSegments = 8 },
-                                tricornMat, V(0f, headCY + headR * 0.28f + 0.11f)));
-                    // Mosquete (cañón largo)
-                    var musket = MI(new CylinderMesh { TopRadius = 0.020f, BottomRadius = 0.026f,
-                                        Height = 0.74f, RadialSegments = 5 },
-                                    SolidMat(new Color(0.42f, 0.28f, 0.12f), roughness: 0.78f),
-                                    V(0.36f, torsoBot + torsoH * 0.52f));
-                    musket.RotationDegrees = new Vector3(14f, 0f, 0f);
-                    AddChild(musket);
-                    // Cañón de metal
-                    var barrel = MI(new CylinderMesh { TopRadius = 0.018f, BottomRadius = 0.018f,
-                                        Height = 0.38f, RadialSegments = 5 },
-                                    metal, V(0.36f, torsoBot + torsoH * 0.52f + 0.18f));
-                    barrel.RotationDegrees = new Vector3(14f, 0f, 0f);
+                    // Casita: cuerpo + tejado piramidal
+                    AddChild(MI(new BoxMesh { Size = new Vector3(0.26f, 0.18f, 0.22f) },
+                                civL, V(0f, topY + 0.09f)));
+                    AddChild(MI(new CylinderMesh { TopRadius=0f, BottomRadius=0.17f,
+                                    Height=0.16f, RadialSegments=4 },
+                                dark, V(0f, topY + 0.26f)));
+                    break;
+                }
+                case UnitType.Scout:
+                {
+                    // Flecha apuntando arriba
+                    AddChild(MI(new CylinderMesh { TopRadius=0f, BottomRadius=0.11f,
+                                    Height=0.26f, RadialSegments=4 },
+                                civL, V(0f, topY + 0.13f)));
+                    break;
+                }
+                case UnitType.Archer:
+                case UnitType.Longbowman:
+                {
+                    // Arco: dos brazos angulados + cuerda
+                    var bL = MI(new BoxMesh { Size = new Vector3(0.05f, 0.24f, 0.05f) },
+                                 metal, V(-0.10f, topY + 0.12f));
+                    bL.RotationDegrees = new Vector3(0f, 0f, -14f);
+                    AddChild(bL);
+                    var bR = MI(new BoxMesh { Size = new Vector3(0.05f, 0.24f, 0.05f) },
+                                 metal, V(+0.10f, topY + 0.12f));
+                    bR.RotationDegrees = new Vector3(0f, 0f, +14f);
+                    AddChild(bR);
+                    AddChild(MI(new BoxMesh { Size = new Vector3(0.008f, 0.32f, 0.008f) },
+                                 SolidMat(new Color(0.90f, 0.86f, 0.74f), roughness: 0.90f),
+                                 V(0.04f, topY + 0.12f)));
+                    break;
+                }
+                case UnitType.Knight:
+                {
+                    // Penacho: tres conos rojos
+                    var red = SolidMat(new Color(0.82f, 0.10f, 0.10f), roughness: 0.82f);
+                    for (int p = -1; p <= 1; p++)
+                        AddChild(MI(new CylinderMesh { TopRadius=0f, BottomRadius=0.05f,
+                                        Height=0.25f, RadialSegments=5 },
+                                     red, V(p * 0.08f, topY + 0.125f)));
+                    break;
+                }
+                case UnitType.Ballista:
+                {
+                    // Cañón horizontal + plataforma
+                    AddChild(MI(new BoxMesh { Size = new Vector3(0.30f, 0.06f, 0.22f) },
+                                 SolidMat(new Color(0.50f, 0.34f, 0.18f), roughness: 0.82f),
+                                 V(0f, topY + 0.03f)));
+                    var barrel = MI(new CylinderMesh { TopRadius=0.04f, BottomRadius=0.06f,
+                                        Height=0.28f, RadialSegments=8 },
+                                     metal, V(0f, topY + 0.05f, 0.10f));
+                    barrel.RotationDegrees = new Vector3(90f, 0f, 0f);
                     AddChild(barrel);
                     break;
                 }
-
-                // ── WORKER: casco amarillo + pala ─────────────────────
+                case UnitType.Musketman:
+                {
+                    // Mosquete diagonal
+                    var musket = MI(new BoxMesh { Size = new Vector3(0.04f, 0.40f, 0.04f) },
+                                     SolidMat(new Color(0.44f, 0.30f, 0.14f), roughness: 0.78f),
+                                     V(0.08f, topY + 0.20f));
+                    musket.RotationDegrees = new Vector3(0f, 0f, 14f);
+                    AddChild(musket);
+                    break;
+                }
                 case UnitType.Worker:
+                {
+                    // Pala: mango + hoja
+                    AddChild(MI(new CylinderMesh { TopRadius=0.028f, BottomRadius=0.032f,
+                                    Height=0.34f, RadialSegments=5 },
+                                 SolidMat(new Color(0.52f, 0.35f, 0.18f), roughness: 0.80f),
+                                 V(0f, topY + 0.17f)));
+                    AddChild(MI(new BoxMesh { Size = new Vector3(0.16f, 0.14f, 0.04f) },
+                                 metal, V(0f, topY + 0.37f)));
+                    break;
+                }
                 default:
                 {
-                    var yellow = SolidMat(new Color(0.94f, 0.79f, 0.08f), roughness: 0.52f);
-                    // Casco: ala + copa redondeada
-                    AddChild(MI(new CylinderMesh { TopRadius = 0.188f, BottomRadius = 0.188f,
-                                    Height = 0.038f, RadialSegments = 10 },
-                                yellow, V(0f, headCY - headR * 0.18f)));
-                    AddChild(MI(new SphereMesh { Radius = 0.148f, RadialSegments = 10, Rings = 5 },
-                                yellow, V(0f, headCY - headR * 0.18f + 0.04f)));
-
-                    // Palo de la pala (madera)
-                    AddChild(MI(new CylinderMesh { TopRadius = 0.032f, BottomRadius = 0.032f,
-                                    Height = 0.58f, RadialSegments = 5 },
-                                SolidMat(new Color(0.52f, 0.35f, 0.18f), roughness: 0.78f),
-                                V(0.40f, torsoBot + torsoH * 0.22f)));
-                    // Hoja de la pala
-                    AddChild(MI(new BoxMesh { Size = new Vector3(0.16f, 0.18f, 0.040f) },
-                                metal, V(0.40f, torsoBot - 0.09f)));
+                    // Genérico: esfera pequeña en color civ claro
+                    AddChild(MI(new SphereMesh { Radius=0.11f, RadialSegments=6, Rings=4 },
+                                 civL, V(0f, topY + 0.11f)));
                     break;
                 }
             }

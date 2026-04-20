@@ -161,6 +161,7 @@ namespace Natiolation.Units
                 CivIndex  = data.CivIndex,
             };
             AddChild(unit);
+            ApplyMaterialOverride(unit, civColor);
             unit.PlaceAt(data.Q, data.R, _map.GetTileHeight(data.Q, data.R));
             unit.RestoreFromSave(data.MovesLeft, data.CurrentHP, data.IsVeteran, data.IsFortified);
             _units.Add(unit);
@@ -171,6 +172,32 @@ namespace Natiolation.Units
         //  SPAWN (nueva partida)
         // ================================================================
 
+        // ================================================================
+        //  MATERIAL OVERRIDE — GLB vertex colors
+        // ================================================================
+
+        /// <summary>
+        /// Recorre recursivamente todos los MeshInstance3D hijos de <paramref name="instance"/>
+        /// y les aplica un StandardMaterial3D con VertexColorUseAsAlbedo = true como MaterialOverride,
+        /// de modo que los colores de vértice del .glb se usen como albedo base.
+        /// </summary>
+        private static void ApplyMaterialOverride(Node3D instance, Color color)
+        {
+            foreach (var child in instance.GetChildren())
+            {
+                if (child is MeshInstance3D mi)
+                {
+                    mi.MaterialOverride = new StandardMaterial3D
+                    {
+                        VertexColorUseAsAlbedo = true,
+                        AlbedoColor            = color,
+                    };
+                }
+                if (child is Node3D n3d)
+                    ApplyMaterialOverride(n3d, color);
+            }
+        }
+
         private void Spawn(UnitType type, int q, int r, Color civColor, int civIndex)
         {
             var t = _map.GetTileType(q, r);
@@ -178,6 +205,7 @@ namespace Natiolation.Units
 
             var unit = new Unit { UnitType=type, CivColor=civColor, CivIndex=civIndex };
             AddChild(unit);
+            ApplyMaterialOverride(unit, civColor);
             unit.PlaceAt(q, r, _map.GetTileHeight(q, r));
             _units.Add(unit);
             _byHex[new HexCoord(q, r)] = unit;

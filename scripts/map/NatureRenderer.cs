@@ -130,7 +130,14 @@ namespace Natiolation.Map
                 // Para meshes procedurales: asignar el material compartido
                 if (_keyMeshes.TryGetValue(key, out var km) && km.mat != null)
                     mmi.MaterialOverride = km.mat;
-                // Para GLBs: sin MaterialOverride → preserva materiales de superficie
+                else
+                    // Para GLBs: material blanco con VertexColorUseAsAlbedo = true
+                    // para que los colores de vértice del .glb se usen como albedo.
+                    mmi.MaterialOverride = new StandardMaterial3D
+                    {
+                        VertexColorUseAsAlbedo = true,
+                        AlbedoColor            = Colors.White,
+                    };
 
                 AddChild(mmi);
                 _meshInstances[key] = mmi;
